@@ -48,17 +48,31 @@ costs no model round trip and behaves exactly like the tool.
 
 ## Install
 
-The plugin is a normal DSH bundle. Ask the agent (no restart needed):
+The plugin is a normal DSH bundle, so any spec the plugin manager accepts works.
+
+**From GitHub** (works before the first npm release). Ask the agent, no restart
+needed:
+
+```
+plugin_manager { action: install_bundle, target: "github:OWNER/dsh-sidebar-browser-control" }
+```
+
+or with the CLI:
+
+```sh
+dsh plugin --profile desktop add github:OWNER/dsh-sidebar-browser-control
+```
+
+**From npm**, once published:
 
 ```
 plugin_manager { action: install_bundle, target: "dsh-sidebar-browser-control" }
 ```
 
-Or with the CLI:
+**From a checkout**, for development:
 
 ```sh
-dsh plugin --profile desktop add dsh-sidebar-browser-control   # from npm
-dsh plugin --profile desktop add link:/abs/path/to/checkout     # from a checkout
+dsh plugin --profile desktop add link:/abs/path/to/checkout
 ```
 
 Remove it with `plugin_manager { action: "remove_bundle", target: "dsh-sidebar-browser-control" }`.
