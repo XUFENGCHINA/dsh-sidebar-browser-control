@@ -13,7 +13,7 @@
     "cordis"
   ],
   "license": "MIT",
-  "author": "dsh-sidebar-browser-control contributors",
+  "author": "XUFENGCHINA",
   "type": "module",
   "main": "index.js",
   "icon": "./icon.svg",
@@ -40,11 +40,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/OWNER/dsh-sidebar-browser-control.git"
+    "url": "git+https://github.com/XUFENGCHINA/dsh-sidebar-browser-control.git"
   },
-  "homepage": "https://github.com/OWNER/dsh-sidebar-browser-control#readme",
+  "homepage": "https://github.com/XUFENGCHINA/dsh-sidebar-browser-control#readme",
   "bugs": {
-    "url": "https://github.com/OWNER/dsh-sidebar-browser-control/issues"
+    "url": "https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/issues"
   },
   "publishConfig": {
     "access": "public"

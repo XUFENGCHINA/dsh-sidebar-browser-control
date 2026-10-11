@@ -1,13 +1,13 @@
 # dsh-sidebar-browser-control
 
 [![npm version](https://img.shields.io/npm/v/dsh-sidebar-browser-control?color=2563eb)](https://www.npmjs.com/package/dsh-sidebar-browser-control)
-[![CI](https://github.com/OWNER/dsh-sidebar-browser-control/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/dsh-sidebar-browser-control/actions/workflows/ci.yml)
-[![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/OWNER/dsh-sidebar-browser-control/blob/main/LICENSE)
+[![CI](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/actions/workflows/ci.yml/badge.svg)](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/blob/main/LICENSE)
 [![DSH](https://img.shields.io/badge/verified%20on-DSH%20Desktop%200.2.0--rc.2-4b5563.svg)](#兼容性)
 
 **让 Agent 直接驱动 DSH 自带的内置浏览器**（右侧栏的「浏览器」tab），而不是再开一个 Chromium。
 
-[English →](https://github.com/OWNER/dsh-sidebar-browser-control/blob/main/README.md)
+[English →](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/blob/main/README.md)
 
 ```
 你 › 在内置浏览器里打开文档页，告诉我 API 那一节讲了什么
@@ -48,13 +48,13 @@ npm 上已有一个走 CDP 的 DSH 浏览器插件（`dsh-browser-control`）。
 **从 GitHub 安装**（还没发 npm 时用这个）。让 Agent 装，无需重启：
 
 ```
-plugin_manager { action: install_bundle, target: "github:OWNER/dsh-sidebar-browser-control" }
+plugin_manager { action: install_bundle, target: "github:XUFENGCHINA/dsh-sidebar-browser-control" }
 ```
 
 或用 CLI：
 
 ```sh
-dsh plugin --profile desktop add github:OWNER/dsh-sidebar-browser-control
+dsh plugin --profile desktop add github:XUFENGCHINA/dsh-sidebar-browser-control
 ```
 
 **从 npm 安装**（发布之后）：
@@ -91,7 +91,7 @@ Host → Client 调用。于是插件拆成两半，用 4 条回环路由相连�
 所以内置地址栏、历史、重启恢复逻辑始终是权威。
 
 完整协议、设计取舍、以及它依赖的 DSH 内部细节见
-[docs/architecture.md](https://github.com/OWNER/dsh-sidebar-browser-control/blob/main/docs/architecture.md)。
+[docs/architecture.md](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/blob/main/docs/architecture.md)。
 
 ## 安全
 
@@ -99,7 +99,7 @@ Host → Client 调用。于是插件拆成两半，用 4 条回环路由相连�
 你在里面登录过什么，Agent 就能以你的身份在那个 tab 里做什么。工具调用会连同参数进会话日志，
 但请把这三个工具当作「允许对方看你的屏幕」来对待。4 条路由只放行 DSH 自身来源（跨站 CSRF 打不进来），
 且只有本插件自己的工具能下发命令。细节见
-[SECURITY.md](https://github.com/OWNER/dsh-sidebar-browser-control/blob/main/SECURITY.md)。
+[SECURITY.md](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/blob/main/SECURITY.md)。
 
 ## 兼容性
 
@@ -110,13 +110,13 @@ Host → Client 调用。于是插件拆成两半，用 4 条回环路由相连�
 插件只依赖公开服务（`ctx.sidebarRight`、`ctx.webServer`、`ctx.tools`、`ctx.commands`）
 以及若干由随包 Sidebar 拥有的 DOM 标记。标记一旦变化，页面级动作会**明确报错**，
 而标签与布局控制照常可用；依赖清单见
-[docs/architecture.md](https://github.com/OWNER/dsh-sidebar-browser-control/blob/main/docs/architecture.md#dsh-internals-this-plugin-depends-on)。
+[docs/architecture.md](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/blob/main/docs/architecture.md#dsh-internals-this-plugin-depends-on)。
 
 ## 已知限制
 
 - **没有截图。** `webview.capturePage()` 在实测环境下让 Electron 渲染进程**原生崩溃**，
   因此该能力被移除，调用会明确拒绝并说明原因。证据与可行替代方案见
-  [docs/architecture.md](https://github.com/OWNER/dsh-sidebar-browser-control/blob/main/docs/architecture.md#why-there-is-no-screenshot)。
+  [docs/architecture.md](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/blob/main/docs/architecture.md#why-there-is-no-screenshot)。
 - 页面级操作**仅 Desktop**。
 - tab id 只在会话内唯一；重名时以 `<会话id>#<tabN>` 形式给出并接受。
 - 动作为选择器式（无坐标点击、上传、下载），且作用于**屏幕上显示的会话**（`ctx.sidebarRight` 的语义）。
@@ -132,10 +132,10 @@ npm run verify  # 语法 + 协议测试 + 打包产物自足性检查
 
 `npm test` 不需要运行中的 DSH，因此在 CI 和全新 checkout 上都能跑。
 规范与「保证可加载」的几条硬约束见
-[CONTRIBUTING.md](https://github.com/OWNER/dsh-sidebar-browser-control/blob/main/CONTRIBUTING.md)，
+[CONTRIBUTING.md](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/blob/main/CONTRIBUTING.md)，
 发布流程见
-[RELEASING.md](https://github.com/OWNER/dsh-sidebar-browser-control/blob/main/RELEASING.md)。
+[RELEASING.md](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/blob/main/RELEASING.md)。
 
 ## 许可
 
-[MIT](https://github.com/OWNER/dsh-sidebar-browser-control/blob/main/LICENSE)
+[MIT](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/blob/main/LICENSE)

@@ -48,8 +48,7 @@ Residual risk, by design:
 ## Reporting a vulnerability
 
 Open a private security advisory on the repository
-(`Security` → `Report a vulnerability`), or email the maintainer listed in
-`package.json`. Please include the DSH version (`dsh --version`, or the Desktop
-app version), the platform (Desktop or Web), and the smallest reproduction you
-have. Please do not open a public issue for a vulnerability before a fix is
-available.
+(`Security` → `Report a vulnerability`). Please include the DSH version
+(`dsh --version`, or the Desktop app version), the platform (Desktop or Web),
+and the smallest reproduction you have. Please do not open a public issue for a
+vulnerability before a fix is available.

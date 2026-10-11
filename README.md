@@ -1,14 +1,14 @@
 # dsh-sidebar-browser-control
 
 [![npm version](https://img.shields.io/npm/v/dsh-sidebar-browser-control?color=2563eb)](https://www.npmjs.com/package/dsh-sidebar-browser-control)
-[![CI](https://github.com/OWNER/dsh-sidebar-browser-control/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/dsh-sidebar-browser-control/actions/workflows/ci.yml)
-[![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/OWNER/dsh-sidebar-browser-control/blob/main/LICENSE)
+[![CI](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/actions/workflows/ci.yml/badge.svg)](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/blob/main/LICENSE)
 [![DSH](https://img.shields.io/badge/verified%20on-DSH%20Desktop%200.2.0--rc.2-4b5563.svg)](#compatibility)
 
 **Let the agent drive DSH's own built-in browser** — the Browser tab in the
 right-hand Sidebar — instead of launching a second Chromium.
 
-[中文说明 →](https://github.com/OWNER/dsh-sidebar-browser-control/blob/main/README.zh.md)
+[中文说明 →](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/blob/main/README.zh.md)
 
 ```
 you › open the docs page in the built-in browser and tell me what the API section says
@@ -54,13 +54,13 @@ The plugin is a normal DSH bundle, so any spec the plugin manager accepts works.
 needed:
 
 ```
-plugin_manager { action: install_bundle, target: "github:OWNER/dsh-sidebar-browser-control" }
+plugin_manager { action: install_bundle, target: "github:XUFENGCHINA/dsh-sidebar-browser-control" }
 ```
 
 or with the CLI:
 
 ```sh
-dsh plugin --profile desktop add github:OWNER/dsh-sidebar-browser-control
+dsh plugin --profile desktop add github:XUFENGCHINA/dsh-sidebar-browser-control
 ```
 
 **From npm**, once published:
@@ -99,7 +99,7 @@ no timer in either direction), and all layout/navigation goes through
 authoritative.
 
 Full protocol, design decisions and the DSH internals it depends on:
-[docs/architecture.md](https://github.com/OWNER/dsh-sidebar-browser-control/blob/main/docs/architecture.md).
+[docs/architecture.md](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/blob/main/docs/architecture.md).
 
 ## Security
 
@@ -109,7 +109,7 @@ tab. Tool calls are logged with their arguments, but treat these tools like
 letting someone read your screen. The four routes admit only the DSH application
 origin (no cross-site CSRF) and only this plugin's own tools can enqueue a
 command. Details:
-[SECURITY.md](https://github.com/OWNER/dsh-sidebar-browser-control/blob/main/SECURITY.md).
+[SECURITY.md](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/blob/main/SECURITY.md).
 
 ## Compatibility
 
@@ -122,14 +122,14 @@ The plugin talks to public services (`ctx.sidebarRight`, `ctx.webServer`,
 `ctx.tools`, `ctx.commands`) plus a few DOM markers owned by the shipped Sidebar
 packages. If a marker changes, page-level actions fail with an explicit message
 while tab and layout control keep working; the table of those dependencies is in
-[docs/architecture.md](https://github.com/OWNER/dsh-sidebar-browser-control/blob/main/docs/architecture.md#dsh-internals-this-plugin-depends-on).
+[docs/architecture.md](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/blob/main/docs/architecture.md#dsh-internals-this-plugin-depends-on).
 
 ## Known limitations
 
 - **No screenshots.** `webview.capturePage()` natively crashed the Electron
   renderer on the verified deployment, so the capability is removed and the call
   refuses with the reason. Evidence and survivable alternatives:
-  [docs/architecture.md](https://github.com/OWNER/dsh-sidebar-browser-control/blob/main/docs/architecture.md#why-there-is-no-screenshot).
+  [docs/architecture.md](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/blob/main/docs/architecture.md#why-there-is-no-screenshot).
 - Page-level actions are **Desktop only**.
 - Tab ids are unique per session; an ambiguous id is reported and accepted as
   `<sessionId>#<tabId>`.
@@ -148,10 +148,10 @@ npm run verify  # syntax + protocol test + packaged-tarball check
 
 `npm test` needs no DSH running, so it works in CI and on a clean checkout.
 Guidelines and the list of invariants that keep this plugin loadable:
-[CONTRIBUTING.md](https://github.com/OWNER/dsh-sidebar-browser-control/blob/main/CONTRIBUTING.md).
+[CONTRIBUTING.md](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/blob/main/CONTRIBUTING.md).
 Releasing:
-[RELEASING.md](https://github.com/OWNER/dsh-sidebar-browser-control/blob/main/RELEASING.md).
+[RELEASING.md](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/blob/main/RELEASING.md).
 
 ## License
 
-[MIT](https://github.com/OWNER/dsh-sidebar-browser-control/blob/main/LICENSE)
+[MIT](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/blob/main/LICENSE)
