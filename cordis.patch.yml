@@ -1,0 +1,12 @@
+# dsh-sidebar-browser-control —— DSH bundle patch
+#
+# Host half only: the browser control surface (routes + tools + slash command).
+# The Client half is declared through `dsh.client` in package.json and drives
+# the right-hand Sidebar Browser through ctx.sidebarRight.
+#
+# Install (from any workspace):
+#   plugin_manager { action: install_bundle, target: "<abs path to this directory>" }
+
+- insert:
+    - id: sidebar-browser-control
+      name: 'dsh-sidebar-browser-control'

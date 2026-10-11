@@ -1,0 +1,17 @@
+# Node / npm
+node_modules/
+npm-debug.log*
+package-lock.json
+pnpm-lock.yaml
+*.tgz
+
+# Editors and OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Local scratch (the plugin never writes these, but a dev session may)
+browser-shots/
+*.local.json

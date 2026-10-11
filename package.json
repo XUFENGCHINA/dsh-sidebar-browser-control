@@ -1,0 +1,71 @@
+{
+  "name": "dsh-sidebar-browser-control",
+  "version": "0.1.0",
+  "description": "Drive DSH's own built-in browser (the right-hand Sidebar's Browser tab) from the agent: list tabs, open, navigate, back/forward, reload, read the page, run JavaScript, click and type. No second Chromium process.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "browser",
+    "browser-automation",
+    "sidebar",
+    "agent-tool",
+    "cordis"
+  ],
+  "license": "MIT",
+  "author": "dsh-sidebar-browser-control contributors",
+  "type": "module",
+  "main": "index.js",
+  "icon": "./icon.svg",
+  "meta": {
+    "title": "Sidebar Browser Control",
+    "description": "Let the agent and the /browser command drive DSH's built-in sidebar browser: list tabs, open, navigate, back/forward, reload, read the page, run JavaScript, click and type."
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "icon.svg",
+    "locale/"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OWNER/dsh-sidebar-browser-control.git"
+  },
+  "homepage": "https://github.com/OWNER/dsh-sidebar-browser-control#readme",
+  "bugs": {
+    "url": "https://github.com/OWNER/dsh-sidebar-browser-control/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "check": "node --check index.js && node --check client.js",
+    "test": "node test/bridge.test.mjs",
+    "verify:pack": "node scripts/verify-pack.mjs",
+    "verify": "npm run check && npm test && npm run verify:pack",
+    "prepublishOnly": "npm run verify"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
+      ]
+    }
+  }
+}

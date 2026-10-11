@@ -1,0 +1,7 @@
+# Keep one line-ending convention in the repository and in checkouts, so a
+# Windows contributor does not rewrite every file on the first commit.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
