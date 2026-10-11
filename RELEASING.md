@@ -46,8 +46,13 @@ Also set the identity (optional but expected for a published package):
 ## 2. Verify
 
 ```sh
-npm run verify
+npm run check:release   # refuses to publish while a placeholder remains
+npm run verify          # syntax + offline protocol test + packaged-artifact gate
 ```
+
+`check:release` also runs automatically from `prepublishOnly`, so `npm publish`
+aborts with a file-by-file list if step 1 was missed — a package whose
+`repository` points at `github.com/OWNER/...` cannot reach the registry.
 
 `npm test` is the offline protocol test; `npm run verify:pack` packs the tarball,
 extracts it and imports the Host half from the extracted files, so a missing
