@@ -80,12 +80,13 @@ git commit --amend --reset-author --no-edit
 Then publish the repository:
 
 ```sh
-git remote add origin https://github.com/<you>/dsh-sidebar-browser-control.git
 git push -u origin main
 ```
 
-(`git init` / `git add -A` / `git commit` are only needed if you start from a
-copy of the directory rather than this repository.)
+Create the repository on GitHub first and leave it **empty** (no README, no
+`.gitignore`, no license) — otherwise the first push is rejected as
+non-fast-forward. Git Credential Manager opens a browser login on the first
+push; that is expected.
 
 ## 4. npm
 
@@ -94,12 +95,50 @@ The name `dsh-sidebar-browser-control` was free on 2026-10-11 (check again:
 through npm, and `dshmarket` / the plugin manager can install them by package
 name, so publishing is what makes the plugin discoverable.
 
-```sh
-npm login
-npm publish            # publishConfig.access = public; prepublishOnly runs the tests
+**The account must have 2FA enabled, or publishing is refused.** The registry
+answers every publish attempt with
+
+```
+E403 … Two-factor authentication or granular access token with bypass 2fa
+enabled is required to publish packages
 ```
 
-Then check the package page renders the icon and bilingual metadata from
+and it does so *after* the tarball has been built and uploaded — passing
+`--otp` does not help while the account itself has 2FA disabled
+(`npm profile get` shows `two-factor auth: disabled`). Nothing is created on the
+registry in that case; confirm with `npm view <name> version` (404 = not
+published).
+
+So publish with:
+
+```sh
+npm profile get                 # must show: two-factor auth: auth-and-writes
+npm publish --access public --otp=<6-digit code>
+```
+
+The code comes from the authenticator app and expires in about 30 seconds, so
+run the command and enter it in the same breath. Enabling 2FA:
+npmjs.com → avatar → **Account** → **Two-factor authentication** → *Enable 2FA*
+(authenticator app).
+
+For automation (CI, a release script), generate a **granular access token with
+"Bypass 2FA" enabled** scoped to this package with read/write, and expose it as
+`//registry.npmjs.org/:_authToken=…` in the environment or a temporary `.npmrc`.
+Do not commit it. Note that npm is restricting bypass-2FA tokens for direct
+publishing, so the 2FA route above is the durable one.
+
+`prepublishOnly` runs `check:release` and `verify` first, so a placeholder or a
+broken tarball aborts the publish before anything reaches the registry.
+
+Then confirm the result and that the published artifact actually installs:
+
+```sh
+npm view dsh-sidebar-browser-control version dist.tarball
+temp=$(mktemp -d) && npm install --prefix "$temp" dsh-sidebar-browser-control
+node -e "import('$temp/node_modules/dsh-sidebar-browser-control/index.js').then(m => console.log(m.name, m.inject))"
+```
+
+Check the package page renders the icon and bilingual metadata from
 `package.json` (`meta`, `icon`, `locale/*.json`).
 
 ## 5. Announce
