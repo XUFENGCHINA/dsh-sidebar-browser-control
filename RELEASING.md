@@ -55,14 +55,25 @@ extracts it and imports the Host half from the extracted files, so a missing
 
 ## 3. Git
 
+The repository is already initialized with one commit, made under a neutral
+placeholder identity (`dsh-sidebar-browser-control contributors
+<noreply@example.com>`). Re-author it under your own name before pushing:
+
 ```sh
-git init
-git add -A
-git commit -m "feat: drive DSH's built-in sidebar browser from the agent"
-git branch -M main
+git config user.name  "Your Name"
+git config user.email "you@example.com"
+git commit --amend --reset-author --no-edit
+```
+
+Then publish the repository:
+
+```sh
 git remote add origin https://github.com/<you>/dsh-sidebar-browser-control.git
 git push -u origin main
 ```
+
+(`git init` / `git add -A` / `git commit` are only needed if you start from a
+copy of the directory rather than this repository.)
 
 ## 4. npm
 
