@@ -50,23 +50,23 @@ costs no model round trip and behaves exactly like the tool.
 
 The plugin is a normal DSH bundle, so any spec the plugin manager accepts works.
 
-**From GitHub** (works before the first npm release). Ask the agent, no restart
-needed:
+**From npm** (published as `dsh-sidebar-browser-control`). Ask the agent, no
+restart needed:
 
 ```
-plugin_manager { action: install_bundle, target: "github:XUFENGCHINA/dsh-sidebar-browser-control" }
+plugin_manager { action: install_bundle, target: "dsh-sidebar-browser-control" }
 ```
 
 or with the CLI:
 
 ```sh
-dsh plugin --profile desktop add github:XUFENGCHINA/dsh-sidebar-browser-control
+dsh plugin --profile desktop add dsh-sidebar-browser-control
 ```
 
-**From npm**, once published:
+**From GitHub**, if you prefer tracking `main`:
 
 ```
-plugin_manager { action: install_bundle, target: "dsh-sidebar-browser-control" }
+plugin_manager { action: install_bundle, target: "github:XUFENGCHINA/dsh-sidebar-browser-control" }
 ```
 
 **From a checkout**, for development:

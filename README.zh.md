@@ -45,22 +45,22 @@ npm 上已有一个走 CDP 的 DSH 浏览器插件（`dsh-browser-control`）。
 
 它就是一个普通 DSH bundle，plugin manager 接受的任何 spec 都能用。
 
-**从 GitHub 安装**（还没发 npm 时用这个）。让 Agent 装，无需重启：
+**从 npm 安装**（已发布为 `dsh-sidebar-browser-control`）。让 Agent 装，无需重启：
 
 ```
-plugin_manager { action: install_bundle, target: "github:XUFENGCHINA/dsh-sidebar-browser-control" }
+plugin_manager { action: install_bundle, target: "dsh-sidebar-browser-control" }
 ```
 
 或用 CLI：
 
 ```sh
-dsh plugin --profile desktop add github:XUFENGCHINA/dsh-sidebar-browser-control
+dsh plugin --profile desktop add dsh-sidebar-browser-control
 ```
 
-**从 npm 安装**（发布之后）：
+**从 GitHub 安装**（想跟 `main` 分支时用）：
 
 ```
-plugin_manager { action: install_bundle, target: "dsh-sidebar-browser-control" }
+plugin_manager { action: install_bundle, target: "github:XUFENGCHINA/dsh-sidebar-browser-control" }
 ```
 
 **从本地 checkout 安装**（开发用）：

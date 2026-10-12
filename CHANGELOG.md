@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- README install order: npm is now the primary path (the package is published),
+  GitHub follows, and a checkout stays the development path. Takes effect on the
+  next publish — the npm page shows the README of the published version.
+
+### Notes
+
+- `0.1.0` was published through npm's staged publishing, which leaves a
+  `0.0.0-stage` placeholder version in the registry's version list. It is not
+  `latest`, nothing installs it by default, and it is npm's own artifact of
+  reserving the name during the staged window.
+
 ## [0.1.0] - 2026-10-11
 
 First release, verified end to end against DSH Desktop 0.2.0-rc.2 (Electron 44,
