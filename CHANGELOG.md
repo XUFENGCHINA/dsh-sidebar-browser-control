@@ -65,6 +65,13 @@ reporting fixes that were staged as 0.1.1 (never published on its own).
   put, leaving the caller with a stale tab id. It now reports the new tab as
   `opened_tab`/`opened_url` and says to continue with it.
 - `browser_page links`/`elements` printed their list twice.
+- A tab restored after a DSH restart has no carrier mounted yet, and
+  `isWebview(undefined)` threw `Cannot read properties of undefined (reading
+  'tagName')`. `navigate` now treats a missing carrier as a load request: on a
+  same-session tab it loads the address (DSH's replace rule creates a new tab, so
+  the result reports the **new** id instead of the dead one), and on another
+  session's tab it explains instead of opening a stray tab in the current one.
+  The "no mounted page" error now names the action that loads it.
 
 ### Changed
 

@@ -206,9 +206,9 @@ window.__ModuleLoader__.load({
       return undefined;
     }
 
-    /** @param frame - a carrier element. @returns whether it is the Electron webview. */
+    /** @param frame - a carrier element, possibly absent. @returns whether it is the Electron webview. */
     function isWebview(frame) {
-      return frame.tagName !== undefined && frame.tagName.toLowerCase() === 'webview';
+      return frame !== undefined && frame !== null && typeof frame.tagName === 'string' && frame.tagName.toLowerCase() === 'webview';
     }
 
     /** @param frame - a carrier element. @returns its current address, when readable. */
@@ -316,7 +316,7 @@ window.__ModuleLoader__.load({
       }
       const frame = frameFor(entry.tabId, entry.sessionId);
       if (frame === undefined) {
-        throw new Error(`标签页 ${entry.handle} 当前没有已挂载的页面（它可能在别的会话、已收起，或还未渲染）。可先用 browser_control 的 focus 把它带到屏幕上。`);
+        throw new Error(`标签页 ${entry.handle} 当前没有已挂载的页面：它可能是重启后尚未加载、在别的会话、或已收起。用 browser_control 的 navigate 指定地址即可加载它（reload 可重载已保存的地址）。`);
       }
       return { entry, frame, tabId: entry.tabId, sessionId: entry.sessionId };
     }
@@ -685,8 +685,28 @@ window.__ModuleLoader__.load({
             const committed = await waitForCommit(frame, 2000);
             return { action, tab_id: target.handle, url: committed.url ?? url, title: committed.title };
           }
+          /* A tab restored after a restart has no carrier until something loads
+             it, so a missing frame is a load request rather than an error. DSH's
+             replace rule closes the old tab and opens a new one, which means the
+             caller must be given the NEW id — the old one is already gone. */
+          const screen = onScreenSession();
+          if (target.sessionId !== screen) {
+            throw new Error(`标签页 ${target.handle} 属于另一个会话，无法从当前会话加载它。请先切换到那个会话（或在当前会话里用 open 打开同样的地址）。`);
+          }
+          const known = new Set(browserEntries().map((entry) => entry.handle));
           service.openTab('browser', { params: { url }, replaceTab: target.tabId, revealIfOpened: false });
-          return { action, tab_id: target.handle, url };
+          const fresh = (await waitForNewEntry(known, screen)) ?? target;
+          await waitForFrame(fresh.tabId, fresh.sessionId, 3000);
+          const loaded = await waitForCommit(frameFor(fresh.tabId, fresh.sessionId), 2500);
+          return {
+            action,
+            tab_id: fresh.handle,
+            url: loaded.url ?? url,
+            title: loaded.title,
+            note: fresh.handle === target.handle
+              ? undefined
+              : `原标签 ${target.handle} 重启后尚未加载页面，已由新标签 ${fresh.handle} 加载它（DSH 的替换语义会新建标签）。请用 ${fresh.handle} 继续。`
+          };
         }
         case 'back':
         case 'forward':
