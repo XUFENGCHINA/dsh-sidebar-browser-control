@@ -6,6 +6,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `browser_control open`/`navigate` reported the guest's creation state
+  (`about:blank#<lease>`, with that string as the title) instead of the page.
+  Both now wait for the first document to commit and report that page's address
+  and title, falling back to the requested address while it is still loading.
+- `browser_page text`/`links`/`elements` returned empty content when the page had
+  failed to load, which reads as "the page is empty". Page actions now detect
+  Chromium's error page and fail with the reason; `navigate` reports a failed
+  load as a note carrying the underlying error (`ERR_NAME_NOT_RESOLVED (-105)` …)
+  instead of failing the whole call; `eval` still runs but says it is on an
+  error page.
+- `browser_page click` matched the largest element containing the text — often a
+  container — and reported success while nothing happened. Candidates are ranked
+  by exact text, then clickability, then size, so a link beats the block around
+  it; clicking a non-actionable element with no page change now says so and
+  points at `elements` for a precise selector.
+- `browser_page click` on a link that opens a new window (DSH turns the popup
+  request into a new sidebar tab) reported success while the original tab stayed
+  put, leaving the caller with a stale tab id. It now reports the new tab as
+  `opened_tab`/`opened_url` and says to continue with it.
+- `browser_page links`/`elements` printed their list twice.
+
 ### Changed
 
 - README install order: npm is now the primary path (the package is published),

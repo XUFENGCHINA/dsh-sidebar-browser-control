@@ -98,7 +98,20 @@ const scripted = {
     tabs: [{ tab_id: 'tab7', title: '示例页', url: 'https://example.com/', session: 'session-1', on_screen: true, active: true }]
   }),
   control: (args) => ({ action: args.action, tab_id: args.tab_id ?? 'tab7', url: args.url ?? 'https://example.com/' }),
-  page: (args) => (args.action === 'eval' ? { action: 'eval', tab_id: 'tab7', value: { answer: 42 } } : { action: args.action, tab_id: 'tab7', text: '页面正文' })
+  page: (args) => {
+    if (args.action === 'eval') return { action: 'eval', tab_id: 'tab7', value: { answer: 42 } };
+    if (args.action === 'click') {
+      return {
+        action: 'click',
+        tab_id: 'tab7',
+        value: { ok: true, tag: 'a', text: 'Learn more', actionable: true },
+        opened_tab: 'tab9',
+        opened_url: 'https://www.iana.org/help/example-domains',
+        note: '该链接在新标签页打开：DSH 把 popup 请求变成了新的侧栏标签 tab9。'
+      };
+    }
+    return { action: args.action, tab_id: 'tab7', text: '页面正文' };
+  }
 };
 
 /** One fake Client half: handshake, long-poll, execute, report. */
@@ -140,6 +153,12 @@ assert.equal(controlValue.action, 'open', 'browser_control forwards the action')
 
 const pageValue = await tools.get('browser_page').execute({ action: 'eval', code: '1+1' }, exec);
 assert.deepEqual(pageValue.value, { answer: 42 }, 'browser_page returns the page value');
+
+const clickValue = await tools.get('browser_page').execute({ action: 'click', selector: 'a' }, exec);
+assert.equal(clickValue.opened_tab, 'tab9', 'a click that opens a tab reports the new tab');
+const clickText = tools.get('browser_page').output.render({}, clickValue)[0].text;
+assert.match(clickText, /opened=tab9/u, 'the render surfaces the opened tab in its header');
+assert.match(clickText, /新标签页地址/u, 'the render surfaces the opened address');
 
 const commandResult = await commands.get('browser').handler({
   rawInput: 'tabs',

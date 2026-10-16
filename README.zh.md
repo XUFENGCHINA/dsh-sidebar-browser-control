@@ -83,6 +83,14 @@ dsh plugin --profile desktop add link:/绝对路径/到/本仓库
 - 「在内置浏览器用 Bing 搜 DeepSeek Harness，给我前三条结果」
 - `/browser open https://example.com` —— 输入框直接敲，不经过模型
 
+驱动它时值得知道的两条实际行为：
+
+- **新窗口打开的链接会变成一个**新的侧栏标签**：DSH 把 popup 请求转成了独立的 tab。
+  `browser_page click` 会把它报成 `opened_tab`/`opened_url`，请接着用那个 id——
+  原标签仍停在原来的页面上。
+- **加载失败的页面会明确报出来**：DNS、网络、证书、以及反爬挑战失败时，标签里是
+  Chromium 错误页；页面级动作会明确说明这一点，而不是返回空内容让你误以为"页面是空的"。
+
 ## 工作原理
 
 浏览器活在 Web 渲染进程里，工具活在 Host 进程里，而 DSH 没有面向第三方插件的

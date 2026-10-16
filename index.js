@@ -325,18 +325,20 @@ function actionText(value) {
   const parts = [];
   if (typeof value.action === 'string') parts.push(value.action);
   if (typeof value.tab_id === 'string') parts.push(`tab=${value.tab_id}`);
+  if (typeof value.opened_tab === 'string') parts.push(`opened=${value.opened_tab}`);
   if (typeof value.url === 'string' && value.url.length > 0) parts.push(value.url);
   if (typeof value.title === 'string' && value.title.length > 0) parts.push(`title=${value.title}`);
   const head = parts.length > 0 ? parts.join(' ') : '完成';
   const body = [];
   if (typeof value.text === 'string' && value.text.length > 0) body.push(value.text);
+  if (typeof value.opened_url === 'string' && value.opened_url.length > 0) body.push(`新标签页地址：${value.opened_url}`);
   if (typeof value.note === 'string' && value.note.length > 0) body.push(`注意：${value.note}`);
   if (value.value !== undefined && value.value !== null) body.push(JSON.stringify(value.value));
   if (Array.isArray(value.links) && value.links.length > 0) {
     body.push(value.links.map((link) => `- ${link.text ?? ''} ${link.href ?? ''}`).join('\n'));
   }
   if (Array.isArray(value.elements) && value.elements.length > 0) {
-    body.push(value.elements.map((element) => `- ${element.selector ?? ''} ${element.text ?? ''}`).join('\n'));
+    body.push(value.elements.map((element) => `- ${element.selector ?? ''} — ${element.text ?? ''}${typeof element.href === 'string' && element.href.length > 0 ? ` (${element.href})` : ''}`).join('\n'));
   }
   return body.length === 0 ? head : `${head}\n${body.join('\n')}`;
 }
@@ -464,7 +466,7 @@ export function apply(ctx) {
 
   ctx.effect(() => ctx.tools.register({
     name: 'browser_page',
-    description: "Read and act on the page inside DSH's built-in browser tab (Desktop app only; browser_tabs reports page_control). text returns the page's visible text, links lists anchors, elements lists interactive elements with a usable selector for click, eval runs JavaScript in the page and returns its JSON value, click clicks a selector or the element containing text, type fills a field (optionally submitting), scroll scrolls, wait waits for a selector or text.",
+    description: "Read and act on the page inside DSH's built-in browser tab (Desktop app only; browser_tabs reports page_control). text returns the page's visible text, links lists anchors, elements lists interactive elements with a usable selector for click, eval runs JavaScript in the page and returns its JSON value, click clicks a selector or the element containing text, type fills a field (optionally submitting), scroll scrolls, wait waits for a selector or text. A link that opens a new window becomes a NEW sidebar tab: click reports it as opened_tab, and you must use that id afterwards — the original tab stays where it was. A page that failed to load is reported as such instead of returning empty content.",
     parameters: {
       type: 'object',
       additionalProperties: false,

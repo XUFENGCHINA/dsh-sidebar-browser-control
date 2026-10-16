@@ -217,10 +217,11 @@ window.__ModuleLoader__.load({
       try {
         if (isWebview(frame)) {
           const url = frame.getURL();
-          return typeof url === 'string' && url.length > 0 && url !== 'about:blank' ? url : undefined;
+          /* A guest is created at `about:blank#<lease>`; that is not an address. */
+          return typeof url === 'string' && /^https?:/u.test(url) ? url : undefined;
         }
         const src = frame.getAttribute('src');
-        return src === null || src.startsWith('about:blank') ? undefined : new URL(src, location.href).href;
+        return src === null || !/^https?:/u.test(src) ? undefined : new URL(src, location.href).href;
       } catch {
         return undefined;
       }
@@ -395,12 +396,27 @@ window.__ModuleLoader__.load({
         const selector = ${JSON.stringify(selector ?? null)};
         const wanted = ${JSON.stringify(text ?? null)};
         if (selector !== null && selector.length > 0) return document.querySelector(selector);
-        if (wanted !== null && wanted.length > 0) {
-          const nodes = [...document.querySelectorAll('a,button,input,textarea,select,summary,label,li,td,th,span,div,p,[role=button],[role=link],[tabindex]')];
-          const read = (node) => (node.innerText || node.value || node.textContent || '').replace(/\\s+/g, ' ').trim();
-          return nodes.find((node) => read(node) === wanted) ?? nodes.find((node) => read(node).includes(wanted)) ?? null;
-        }
-        return null;
+        if (wanted === null || wanted.length === 0) return null;
+        const nodes = [...document.querySelectorAll('a,button,input,textarea,select,summary,label,li,td,th,span,div,p,[role=button],[role=link],[tabindex]')];
+        const read = (node) => (node.innerText || node.value || node.textContent || '').replace(/\\s+/g, ' ').trim();
+        const actionable = (node) => node.matches('a[href],button,input,select,textarea,summary,[role=button],[role=link]');
+        const matches = nodes.filter((node) => { const value = read(node); return value === wanted || value.includes(wanted); });
+        if (matches.length === 0) return null;
+        /* Rank: exact text, then something clickable, then the smallest match —
+           so a link beats the container that merely contains its text. */
+        const score = (node) => {
+          const value = read(node);
+          return [value === wanted ? 0 : 1, actionable(node) ? 0 : 1, value.length];
+        };
+        matches.sort((left, right) => {
+          const a = score(left);
+          const b = score(right);
+          for (let index = 0; index < a.length; index += 1) {
+            if (a[index] !== b[index]) return a[index] - b[index];
+          }
+          return 0;
+        });
+        return matches[0];
       })()`;
     }
 
@@ -431,6 +447,64 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Inspect the document a command is about to act on.
+     *
+     * A failed load leaves Chromium's error page in the webview, where every
+     * extraction legitimately returns nothing — which reads to a model as "the
+     * page is empty". This makes that state visible instead.
+     * @param view - carrier element.
+     * @returns `{ failed, href, title, empty }` for the loaded document.
+     */
+    async function inspectPage(view) {
+      let state;
+      try {
+        state = await view.executeJavaScript('(() => ({ href: location.href, protocol: location.protocol, title: document.title, body: (document.body === null ? "" : document.body.innerText).slice(0, 60) }))()');
+      } catch {
+        return { failed: false, href: frameUrl(view) ?? '', title: frameTitle(view), empty: false };
+      }
+      const href = typeof state?.href === 'string' ? state.href : '';
+      const protocol = typeof state?.protocol === 'string' ? state.protocol : '';
+      return {
+        failed: href.startsWith('chrome-error:') || protocol === 'chrome-error:',
+        href,
+        title: typeof state?.title === 'string' ? state.title : '',
+        empty: typeof state?.body === 'string' && state.body.trim().length === 0
+      };
+    }
+
+    /**
+     * Refuse to act on a document that never loaded.
+     * @param state - result of {@link inspectPage}.
+     * @param action - page action name, for the message.
+     */
+    function requireLoaded(state, action) {
+      if (!state.failed) return;
+      throw new Error(`页面没有加载成功（内置浏览器里是 Chromium 错误页，通常是 DNS、网络或证书失败），"${action}" 没有内容可操作。可以先用 browser_control 的 reload 重试，或用 external 交给系统浏览器。`);
+    }
+
+    /**
+     * Wait for a freshly opened tab to commit its first document, so the
+     * reported title and address belong to the page rather than to the guest's
+     * creation state (`about:blank#<lease>`, whose "title" is that string).
+     * @param frame - carrier element, when it is already mounted.
+     * @param timeoutMs - how long to wait for a committed document.
+     * @returns `{ title, url }` as observed; both empty/undefined until commit.
+     */
+    async function waitForCommit(frame, timeoutMs = 4000) {
+      if (frame === undefined) return { title: '', url: undefined };
+      const deadline = Date.now() + timeoutMs;
+      for (;;) {
+        const url = frameUrl(frame);
+        const title = frameTitle(frame);
+        const committed = url !== undefined && title.length > 0 && !title.startsWith('about:');
+        if (committed || Date.now() >= deadline) {
+          return { title: title.startsWith('about:') ? '' : title, url };
+        }
+        await sleep(150);
+      }
+    }
+
+    /**
      * Run one `control` command through the sidebar controller and the carrier.
      * @param args - command arguments.
      * @returns the operation result.
@@ -455,12 +529,13 @@ window.__ModuleLoader__.load({
           const entry = (await waitForNewEntry(known, screen)) ?? (target !== undefined ? target : defaultEntry());
           if (entry !== undefined) await waitForFrame(entry.tabId, entry.sessionId, 3000);
           const frame = entry === undefined ? undefined : frameFor(entry.tabId, entry.sessionId);
+          const committed = await waitForCommit(frame);
           return {
             action,
             tab_id: entry?.handle,
             session: entry?.sessionId,
-            url,
-            title: frameTitle(frame) || (entry === undefined ? undefined : recordFor(entry)?.title)
+            url: committed.url ?? url,
+            title: committed.title || (entry === undefined ? undefined : recordFor(entry)?.title)
           };
         }
         case 'navigate': {
@@ -469,8 +544,23 @@ window.__ModuleLoader__.load({
           if (target === undefined) return await control({ action: 'open', url: args.url });
           const frame = frameFor(target.tabId, target.sessionId);
           if (isWebview(frame)) {
-            await frame.loadURL(url);
-            return { action, tab_id: target.handle, url, title: frameTitle(frame) };
+            try {
+              await frame.loadURL(url);
+            } catch (error) {
+              /* A failed load still leaves the tab at that address, showing
+                 Chromium's error page; report it instead of failing the call. */
+              const failed = await inspectPage(frame);
+              return {
+                action,
+                tab_id: target.handle,
+                url: frameUrl(frame) ?? url,
+                note: failed.failed
+                  ? `页面加载失败（${String(error?.message ?? error)}）：内置浏览器停在了 Chromium 错误页，通常是 DNS、网络或证书问题。可以换一个地址，或先用 external 交给系统浏览器。`
+                  : `导航被中断：${String(error?.message ?? error)}`
+              };
+            }
+            const committed = await waitForCommit(frame, 2000);
+            return { action, tab_id: target.handle, url: committed.url ?? url, title: committed.title };
           }
           service.openTab('browser', { params: { url }, replaceTab: target.tabId, revealIfOpened: false });
           return { action, tab_id: target.handle, url };
@@ -560,19 +650,33 @@ window.__ModuleLoader__.load({
       const { frame, entry } = resolveTarget(args);
       const view = requireWebview(frame);
       const limit = Number.isFinite(args?.max_chars) ? Math.max(200, Math.min(200_000, Math.trunc(args.max_chars))) : 8000;
+      const state = await inspectPage(view);
       const base = { action, tab_id: entry.handle, url: frameUrl(view), title: frameTitle(view) };
+      const pageNote = state.failed
+        ? '页面是 Chromium 错误页（加载失败），内容为空是正常的：可用 browser_control 的 reload 重试。'
+        : undefined;
 
       switch (action) {
         case 'text': {
+          requireLoaded(state, action);
           const text = await view.executeJavaScript('(() => { const body = document.body; return body === null ? "" : body.innerText; })()');
-          return { ...base, text: clamp(typeof text === 'string' ? text : JSON.stringify(text), limit) };
+          const rendered = typeof text === 'string' ? text : JSON.stringify(text);
+          return {
+            ...base,
+            text: clamp(rendered, limit),
+            note: rendered.trim().length === 0
+              ? '页面正文为空：可能是跳转还没完成（试试 wait）或内容由脚本延迟渲染（试试 eval 读具体节点）。'
+              : undefined
+          };
         }
         case 'links': {
+          requireLoaded(state, action);
           const links = await view.executeJavaScript('(() => [...document.querySelectorAll("a[href]")].slice(0, 300).map((node) => ({ text: (node.innerText || node.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 160), href: node.href })).filter((link) => link.href.startsWith("http")))()');
-          const list = Array.isArray(links) ? links : [];
-          return { ...base, links: list.slice(0, 120), text: clamp(list.map((link) => `- ${link.text} ${link.href}`).join('\n'), limit) };
+          const list = (Array.isArray(links) ? links : []).slice(0, 120);
+          return { ...base, links: list, note: list.length === 0 ? '页面里没有 http(s) 链接。' : undefined };
         }
         case 'elements': {
+          requireLoaded(state, action);
           const elements = await view.executeJavaScript(`(() => {
             const path = (el) => {
               const parts = [];
@@ -596,29 +700,62 @@ window.__ModuleLoader__.load({
               .map((el) => ({ tag: el.tagName.toLowerCase(), selector: path(el), text: (el.innerText || el.value || el.getAttribute('aria-label') || el.placeholder || '').replace(/\\s+/g, ' ').trim().slice(0, 120), href: el.getAttribute('href') || undefined }));
           })()`);
           const list = Array.isArray(elements) ? elements : [];
-          return { ...base, elements: list, text: clamp(list.map((element) => `- ${element.selector} — ${element.text}${element.href !== undefined ? ` (${element.href})` : ''}`).join('\n'), limit) };
+          return { ...base, elements: list, note: list.length === 0 ? '这个页面没有可交互元素（或它们都不可见）。' : undefined };
         }
         case 'eval': {
           if (typeof args?.code !== 'string' || args.code.trim().length === 0) throw new Error('eval 需要一个 code 参数。');
           const value = await view.executeJavaScript(args.code, true);
-          return { ...base, value: clampValue(value, limit) };
+          return { ...base, value: clampValue(value, limit), note: pageNote };
         }
         case 'click': {
           const selector = typeof args?.selector === 'string' && args.selector.length > 0 ? args.selector : undefined;
           const wanted = typeof args?.text === 'string' && args.text.length > 0 ? args.text : undefined;
           if (selector === undefined && wanted === undefined) throw new Error('click 需要 selector 或 text 参数。');
+          requireLoaded(state, action);
+          const before = new Set(browserEntries().map((candidate) => candidate.handle));
           const outcome = await view.executeJavaScript(`(() => {
             const el = ${matchExpression(selector, wanted)};
             if (el === null) return { ok: false, reason: 'not-found' };
             el.scrollIntoView({ block: 'center', inline: 'center' });
             el.click();
-            return { ok: true, tag: el.tagName.toLowerCase(), text: (el.innerText || el.value || el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 200) };
+            return {
+              ok: true,
+              tag: el.tagName.toLowerCase(),
+              text: (el.innerText || el.value || el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 200),
+              target: el.getAttribute('target') || undefined,
+              actionable: el.matches('a[href],button,input,select,textarea,summary,[role=button],[role=link]')
+            };
           })()`, true);
           if (outcome?.ok !== true) throw new Error(`没有找到可点击的目标（${selector ?? wanted}）。可先用 browser_page 的 elements 查看可用元素。`);
-          return { ...base, value: outcome, url: frameUrl(view), note: '已派发点击。' };
+          await sleep(700);
+          const opened = browserEntries().find((candidate) => !before.has(candidate.handle));
+          if (opened !== undefined) {
+            const openedFrame = (await waitForFrame(opened.tabId, opened.sessionId, 3000)) ?? undefined;
+            const committed = await waitForCommit(openedFrame, 2500);
+            return {
+              ...base,
+              value: outcome,
+              url: await settle(view, base.url, 2000),
+              opened_tab: opened.handle,
+              opened_url: committed.url,
+              opened_title: committed.title,
+              note: `该链接在新标签页打开：DSH 把 popup 请求变成了新的侧栏标签 ${opened.handle}。请用它继续操作，原标签 ${entry.handle} 仍停在当前页面。`
+            };
+          }
+          const settledUrl = await settle(view, base.url, 3000);
+          const stalled = outcome.actionable === false && settledUrl === base.url;
+          return {
+            ...base,
+            value: outcome,
+            url: settledUrl,
+            note: stalled
+              ? `点击的元素不是链接或按钮（匹配到的是 <${outcome.tag}> 这样的外层容器），页面没有任何变化。请改用 browser_page 的 elements 取一个精确 selector，再点那个链接或按钮。`
+              : '已派发点击。'
+          };
         }
         case 'type': {
           if (typeof args?.text !== 'string') throw new Error('type 需要一个 text 参数。');
+          requireLoaded(state, action);
           const selector = typeof args?.selector === 'string' && args.selector.length > 0 ? args.selector : undefined;
           const submit = args?.submit === true;
           const outcome = await view.executeJavaScript(`(() => {
@@ -641,6 +778,7 @@ window.__ModuleLoader__.load({
           return { ...base, value: { tag: outcome.tag, value: String(outcome.value ?? '').slice(0, 200) }, note: submit ? '已填写并提交。' : '已填写。' };
         }
         case 'scroll': {
+          requireLoaded(state, action);
           const pixels = Number.isFinite(args?.ms) ? Math.trunc(args.ms) : 0;
           await view.executeJavaScript(`(() => { window.scrollBy({ top: ${pixels} === 0 ? Math.round(window.innerHeight * 0.9) : ${pixels}, behavior: 'smooth' }); return true; })()`);
           await sleep(450);
@@ -648,6 +786,7 @@ window.__ModuleLoader__.load({
           return { ...base, value: position };
         }
         case 'wait': {
+          requireLoaded(state, action);
           const timeout = Number.isFinite(args?.ms) ? Math.max(200, Math.min(60_000, Math.trunc(args.ms))) : 10_000;
           const selector = typeof args?.selector === 'string' && args.selector.length > 0 ? args.selector : undefined;
           const wanted = typeof args?.text === 'string' && args.text.length > 0 ? args.text : undefined;

@@ -114,6 +114,24 @@ The graceful-degradation rule is: **anything that only needs `ctx.sidebarRight`
 must keep working when the DOM markers change**, and anything DOM-dependent must
 fail with an explicit message rather than a silent no-op.
 
+## Failure modes that are reported, never swallowed
+
+Driving a real browser means meeting real failures, and the expensive ones are
+the ones that look like success. These are the states the Client half detects
+explicitly (all verified against the running Desktop app):
+
+| State | What the carrier looks like | What the caller is told |
+|---|---|---|
+| Guest created, document not committed | `getURL()` is `about:blank#<lease>`, `getTitle()` is that string | `open`/`navigate` wait for the first commit and report the page; the address falls back to the requested one meanwhile |
+| Load failed (DNS/TLS/network) | `location.href` is `chrome-error://chromewebdata/`, body empty, `loadURL()` rejects | `navigate` returns a note with the underlying error (`ERR_NAME_NOT_RESOLVED (-105)`); page actions fail with "页面没有加载成功 …" instead of empty content; `eval` still runs and says it is on an error page |
+| Click matched a container | element is a `div`/`body`, page unchanged | click reports "the element is not a link or button … use `elements` for a precise selector" — a silent no-op reads as success otherwise |
+| Link opened a new window | DSH turns the popup request into a new sidebar tab | click reports `opened_tab`/`opened_url` and says to continue with that id; the original tab is unchanged |
+| Page is genuinely empty / has no links | normal document, nothing to read | `note` explains the likely causes (SPA still rendering, use `wait`/`eval`) |
+
+Text matching for `click`/`wait` ranks candidates by **exact text, then
+clickability, then size**, so a link wins over the block that merely contains its
+text. Prefer an explicit `selector` from `elements` when precision matters.
+
 ## Why there is no screenshot
 
 `browser_page { action: "screenshot" }` was implemented with

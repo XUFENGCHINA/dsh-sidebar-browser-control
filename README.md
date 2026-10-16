@@ -89,6 +89,17 @@ Just ask, in any session whose Sidebar is on screen:
 - "search Bing in the built-in browser for DeepSeek Harness and give me the first three results"
 - `/browser open https://example.com` — straight from the composer, no model call
 
+Two behaviours worth knowing while driving it:
+
+- **A link that opens a new window becomes a new sidebar tab** — DSH turns the
+  popup request into a tab of its own. `browser_page click` reports it as
+  `opened_tab`/`opened_url`; continue with that id, because the original tab
+  stays where it was.
+- **A page that fails to load says so** — DNS, network, certificate and bot-check
+  failures leave Chromium's error page in the tab, and page actions report that
+  explicitly instead of returning empty content that reads as "the page is
+  empty".
+
 ## How it works
 
 The browser lives in the Web renderer, tools live in the Host, and DSH exposes no
