@@ -119,40 +119,9 @@ npm publish --access public --otp=<6-digit code>
 The code comes from the authenticator app and expires in about 30 seconds, so
 run the command and enter it in the same breath. Enabling 2FA:
 npmjs.com → avatar → **Account** → **Two-factor authentication** → *Enable 2FA*
-(authenticator app).
-
-### When the second factor is a security key or passkey
-
-WebAuthn (a security key, Windows Hello, a passkey in the OS or a password
-manager) cannot produce the six-digit code the CLI asks for, so `--otp` is not an
-option at all — and changing 2FA settings invalidates the CLI's session token
-(`npm whoami` → `E401`), so a fresh `npm login` does not fix it either.
-
-Publish with a granular access token instead:
-
-1. npmjs.com → avatar → **Access Tokens** → **Generate New Token** →
-   **Granular Access Token**
-2. *Packages and scopes*: **Read and write** for this package (or all packages)
-3. Enable **Bypass 2FA** — npm confirms the change with your security key
-4. Use it for one publish without touching your saved login:
-
-   ```powershell
-   cd <this repository>
-   "//registry.npmjs.org/:_authToken=npm_xxx" | Set-Content -Encoding ascii .npmrc.publish
-   npm publish --access public --userconfig .npmrc.publish
-   Remove-Item .npmrc.publish
-   ```
-
-   (`-Encoding ascii` matters: npm's rc parser does not accept a BOM.)
-
-5. **Revoke the token afterwards**, or give it a short expiry — it bypasses 2FA by
-   design. The published version stays published either way.
-
-For automation (CI, a release script), the same token type is the answer; expose
-it as `//registry.npmjs.org/:_authToken=…` in the environment or a temporary
-`.npmrc` rather than in the repository. Note that npm is restricting bypass-2FA
-tokens for direct publishing, so an authenticator-app account with `--otp`
-remains the durable route.
+(authenticator app). npm's publish flow changes from time to time; if the
+registry refuses a publish, its error message names the requirement, and
+`npm view <name> version` (404) tells you whether anything actually landed.
 
 `prepublishOnly` runs `check:release` and `verify` first, so a placeholder or a
 broken tarball aborts the publish before anything reaches the registry.
