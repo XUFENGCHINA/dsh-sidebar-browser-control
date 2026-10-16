@@ -34,12 +34,38 @@ npm 上已有一个走 CDP 的 DSH 浏览器插件（`dsh-browser-control`）。
 
 | 工具 | 动作 |
 |---|---|
-| `browser_tabs` | 列出内置浏览器已打开的标签：id、实时标题、URL、所属会话、面板状态、是否支持页面级控制 |
+| `browser_tabs` | 列出内置浏览器已打开的标签：id、实时标题、URL、所属会话、面板状态、是否支持页面级控制，以及截图能力诊断 |
 | `browser_control` | `open` · `navigate` · `back` · `forward` · `reload` · `close` · `focus` · `expand` · `collapse` · `fullscreen` · `split` · `float` · `dock` · `external` |
-| `browser_page` | `text` · `links` · `elements` · `eval` · `click` · `type` · `scroll` · `wait`（**仅 Desktop**） |
-| `/browser` | `open <url>` · `tabs` · `back` · `forward` · `reload` · `close` · `focus` · `expand` · `collapse` · `fullscreen` · `split` · `float` · `dock` · `external` · `read` |
+| `browser_page` | `text` · `links` · `elements` · `eval` · `click` · `type` · `fill` · `key` · `login` · `scroll` · `wait` · `images` · `image` · `screenshot`（**页面级动作仅 Desktop**） |
+| `/browser` | `open <url>` · `tabs` · `back` · `forward` · `reload` · `close` · `focus` · `expand` · `collapse` · `fullscreen` · `split` · `float` · `dock` · `external` · `read` · `images` · `image <N>` · `screenshot` |
 
 工具和斜杠命令**共用同一份实现**，所以 `/browser open …` 不花模型轮次，行为与工具完全一致。
+
+### 不只是读页面，而是操作页面
+
+- `elements` 报告的是**人看到的东西**：`type`、`name`、`label`、`placeholder`、
+  `autocomplete`、`value`、`checked`，外加一个可直接交给 `click` 的选择器。
+- `fill` 一次填多个字段，按**标签或占位符**匹配，而不只是 CSS 选择器 ——
+  `[{ label: "用户名", value: "alice" }, { label: "密码", value: "…" },
+  { label: "记住我", value: true }]` —— 并且可以直接提交。**所有结果里密码都是打码的**。
+- `login` 一次调用走完整套流程：找到账号与密码字段（**同源 iframe 里也能找**）→ 填写 →
+  提交 → 等待 → 报告找到了哪些字段、密码框是否消失、最终落在哪个地址、以及登录后页面的一段摘录。
+  **密码从不回显**。
+- `key` 发送 Enter / Tab / Escape；Enter 会提交它所在的表单。
+- `wait` 支持等待选择器、一段文本，或 `url_contains`。
+
+### 看见页面
+
+两条把**真实像素**交给模型的路子：
+
+- `images` 列出视口里的图片；`image { index }` 把其中一张作为附件交给模型，于是它能看照片、
+  图表、二维码或验证码。HTTP(S) 来源由**宿主**抓取（页面自己的 `fetch` 受 CORS 限制）；
+  `data:`、`blob:` 与 `<canvas>` 来源在页面内解码。
+- `screenshot` 抓**浏览器面板本身**并附上。它刻意避开所有 Electron 原生截图接口——
+  `webview.capturePage()` 在实测环境下让渲染进程崩溃（见下文）——改为向页面读取面板的几何信息，
+  再用 PowerShell 的 `PrintWindow` 抓 DSH 窗口、裁剪到那个矩形。因为它渲染的是窗口自己的像素，
+  **窗口被其他应用遮挡时照样能用**。窗口**最小化**时没有可渲染表面，工具会说明原因并拒绝；
+  加 `restore: true` 可以先把它还原再抓。这条路径目前**仅 Windows**，其他平台会明确说明而不是静默失败。
 
 ## 安装
 
@@ -72,7 +98,8 @@ dsh plugin --profile desktop add link:/绝对路径/到/本仓库
 卸载：`plugin_manager { action: "remove_bundle", target: "dsh-sidebar-browser-control" }`。
 
 本地开发时改完 `client.js` 要请 Host 重新扫描 bundle（`set_bundle` 关一次再开一次）——
-客户端产物是按快照提供的，光改文件不会生效。
+客户端产物是按快照提供的，光改文件不会生效。**改 `index.js`（宿主半）则必须重启 DSH**，
+宿主模块在进程生命周期内被缓存。
 
 ## 用法
 
@@ -81,11 +108,14 @@ dsh plugin --profile desktop add link:/绝对路径/到/本仓库
 - 「在内置浏览器打开 `https://news.ycombinator.com`，总结前 5 条」
 - 「在内置浏览器里点 *Sign in*，告诉我表单要填什么」
 - 「在内置浏览器用 Bing 搜 DeepSeek Harness，给我前三条结果」
+- 「用这个账号登录进去，告诉我登录后看到了什么」（走 `browser_page login`，密码不会回显）
+- 「把页面里那张二维码给我看看」（先 `images` 列出来，再 `image` 取其中一张）
+- 「把浏览器面板截个图给我」（`screenshot`）
 - `/browser open https://example.com` —— 输入框直接敲，不经过模型
 
 驱动它时值得知道的两条实际行为：
 
-- **新窗口打开的链接会变成一个**新的侧栏标签**：DSH 把 popup 请求转成了独立的 tab。
+- **新窗口打开的链接会变成一个新的侧栏标签**：DSH 把 popup 请求转成了独立的 tab。
   `browser_page click` 会把它报成 `opened_tab`/`opened_url`，请接着用那个 id——
   原标签仍停在原来的页面上。
 - **加载失败的页面会明确报出来**：DNS、网络、证书、以及反爬挑战失败时，标签里是
@@ -104,16 +134,22 @@ Host → Client 调用。于是插件拆成两半，用 4 条回环路由相连�
 ## 安全
 
 `browser_page eval` 会在该 tab 的页面里执行任意 JavaScript，并带着那个页面的 Cookie——
-你在里面登录过什么，Agent 就能以你的身份在那个 tab 里做什么。工具调用会连同参数进会话日志，
-但请把这三个工具当作「允许对方看你的屏幕」来对待。4 条路由只放行 DSH 自身来源（跨站 CSRF 打不进来），
-且只有本插件自己的工具能下发命令。细节见
+你在里面登录过什么，Agent 就能以你的身份在那个 tab 里做什么。`screenshot` 与 `image`
+则是把**屏幕上的像素**（分别是 DSH 窗口、页面里的图片）作为附件交给模型。
+工具调用会连同参数进会话日志，但请把这三个工具当作「允许对方看你的屏幕」来对待。
+4 条路由只放行 DSH 自身来源（跨站 CSRF 打不进来），且只有本插件自己的工具能下发命令。
+细节见
 [SECURITY.md](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/blob/main/SECURITY.md)。
 
 ## 兼容性
 
 已在 **DSH Desktop 0.2.0-rc.2 / Electron 44 / Windows x64** 上端到端实测：
 列出、打开、导航、前进后退、刷新、读取正文、`eval`、列出元素、点击、输入并提交、
-浮窗/停靠、关闭、展开/收起。Web profile 只能做标签与布局控制（sandbox iframe 读不到页面内容）。
+**按标签批量填表（含复选框）**、**回车提交表单**、**同源 iframe 内完成登录**、
+**等待 `url_contains`**、列出页面图片、**把页面里的图片作为附件交给模型**、
+**抓取浏览器面板截图**、浮窗/停靠、关闭、展开/收起。
+
+Web profile 只能做标签与布局控制（sandbox iframe 读不到页面内容）。
 
 插件只依赖公开服务（`ctx.sidebarRight`、`ctx.webServer`、`ctx.tools`、`ctx.commands`）
 以及若干由随包 Sidebar 拥有的 DOM 标记。标记一旦变化，页面级动作会**明确报错**，
@@ -122,8 +158,10 @@ Host → Client 调用。于是插件拆成两半，用 4 条回环路由相连�
 
 ## 已知限制
 
-- **没有截图。** `webview.capturePage()` 在实测环境下让 Electron 渲染进程**原生崩溃**，
-  因此该能力被移除，调用会明确拒绝并说明原因。证据与可行替代方案见
+- **截图不走 Electron 原生接口。** `webview.capturePage()` 在实测环境下让 Electron 渲染进程
+  **原生崩溃**，所以这个调用在整个插件里都不存在；`screenshot` 改用 `PrintWindow`：
+  **仅 Windows**、窗口不能处于最小化（除非传 `restore: true`，它会先把窗口还原）。
+  证据与可行替代方案见
   [docs/architecture.md](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/blob/main/docs/architecture.md#why-there-is-no-screenshot)。
 - 页面级操作**仅 Desktop**。
 - tab id 只在会话内唯一；重名时以 `<会话id>#<tabN>` 形式给出并接受。
