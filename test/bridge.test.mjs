@@ -11,6 +11,12 @@
 
 import { createServer } from 'node:http';
 import assert from 'node:assert/strict';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+/** A 4x4 PNG, base64: the smallest real picture that proves the attach path. */
+const PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAFUlEQVR42mP8z8BQz0AEYBxVSF+FABJADveWkH6oAAAAAElFTkSuQmCC';
 
 const plugin = await import('../index.js');
 
@@ -111,7 +117,26 @@ const scripted = {
       };
     }
     return { action: args.action, tab_id: 'tab7', text: '页面正文' };
-  }
+  },
+  image: () => ({
+    action: 'image',
+    tab_id: 'tab7',
+    url: 'https://example.com/pics',
+    image_url: 'https://example.com/pixel.png',
+    alt: '方块',
+    width: 4,
+    height: 4,
+    media_type: 'image/png',
+    inline: PIXEL
+  }),
+  geometry: () => ({
+    tab_id: 'tab7',
+    url: 'https://example.com/pics',
+    title: '示例页',
+    rect: { left: 700, top: 30, width: 560, height: 760 },
+    devicePixelRatio: 1,
+    outer: { width: 1296, height: 828, innerWidth: 1280, innerHeight: 820 }
+  })
 };
 
 /** One fake Client half: handshake, long-poll, execute, report. */
@@ -159,6 +184,29 @@ assert.equal(clickValue.opened_tab, 'tab9', 'a click that opens a tab reports th
 const clickText = tools.get('browser_page').output.render({}, clickValue)[0].text;
 assert.match(clickText, /opened=tab9/u, 'the render surfaces the opened tab in its header');
 assert.match(clickText, /新标签页地址/u, 'the render surfaces the opened address');
+
+/* The picture path: inline bytes reach the workspace, and the crop maths holds. */
+const workdir = mkdtempSync(join(tmpdir(), 'dsh-sbc-shot-'));
+try {
+  const execWithWorkspace = { ...exec, agent: { session: { header: { cwd: workdir } } } };
+  const picture = await tools.get('browser_page').execute({ action: 'image', index: 1 }, execWithWorkspace);
+  assert.equal(picture.bytes, Buffer.from(PIXEL, 'base64').length, 'the decoded picture is what gets saved');
+  assert.match(String(picture.path), /browser-shots/u, 'the picture lands under browser-shots/');
+  assert.ok(existsSync(join(workdir, picture.path)), 'the picture is written into the workspace');
+  const pictureText = tools.get('browser_page').output.render({}, picture)[0].text;
+  assert.match(pictureText, /图片已保存/u, 'the render says where the picture went');
+} finally {
+  rmSync(workdir, { recursive: true, force: true });
+}
+
+/* Crop maths: the pane rectangle plus the window frame, in device pixels. */
+const { geometryToCrop } = plugin;
+const crop = geometryToCrop({
+  rect: { left: 700, top: 30, width: 560, height: 760 },
+  devicePixelRatio: 2,
+  outer: { width: 1296, height: 828, innerWidth: 1280, innerHeight: 820 }
+});
+assert.deepEqual(crop, { x: 1416, y: 60, width: 1120, height: 1520 }, 'crop = (frame + pane) × devicePixelRatio');
 
 const commandResult = await commands.get('browser').handler({
   rawInput: 'tabs',

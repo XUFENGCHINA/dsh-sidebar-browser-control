@@ -74,9 +74,10 @@ Two ways to give the model actual pixels:
   (see below) — and instead reads the pane's geometry from the page, then
   captures the DSH window with `PrintWindow` through PowerShell and crops to that
   rectangle. Because it renders the window's own pixels, it also works while
-  other applications cover the window. The window must not be minimized, and
-  this path is Windows-only today; elsewhere the tool says so instead of failing
-  quietly.
+  other applications cover the window. A **minimized** window has no rendered
+  surface, so the tool refuses with that reason — pass `restore: true` to let it
+  bring the window back first. This path is Windows-only today; elsewhere the
+  tool says so instead of failing quietly.
 
 ## Install
 

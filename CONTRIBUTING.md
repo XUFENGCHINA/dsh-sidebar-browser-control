@@ -11,6 +11,7 @@ bar for a change is: **it must be verifiable without a running DSH.**
 | `client.js` | Client | runs in the DSH Web page: `ctx.sidebarRight` + `<webview>` |
 | `test/bridge.test.mjs` | test | offline: stub context + real `node:http` + a fake Client half |
 | `scripts/verify-pack.mjs` | test | packs the tarball and proves the shipped file set works |
+| `scripts/debug-capture.mjs` | dev | runs the real window-capture code outside DSH |
 | `docs/architecture.md` | docs | protocol, design decisions, DSH internals it depends on |
 
 ## Rules that exist for a reason
@@ -54,10 +55,38 @@ plugin_manager { action: set_bundle, target: "dsh-sidebar-browser-control", enab
 plugin_manager { action: set_bundle, target: "dsh-sidebar-browser-control", enabled: true }
 ```
 
+**That toggle only reloads the Client half.** The Host half's ES module stays in
+Node's module cache for the life of the process, so a change to `index.js` — the
+tools, the routes, the capture pipeline — needs a **DSH restart** before it runs.
+Plan host-side work in batches, and verify client-side behaviour live in between.
+
 Then exercise it with the tools themselves (`browser_tabs`,
 `browser_control { action: "open", url: "https://example.com" }`,
 `browser_page { action: "text" }`) and **restore whatever UI state you touched**
 (close the tabs you opened, collapse the panel if it was collapsed).
+
+### Debugging the window capture
+
+`screenshot`, `image` and the geometry maths need a real window, so they cannot
+run in the offline test. Use the Host half's own code directly:
+
+```sh
+node scripts/debug-capture.mjs              # whole window
+node scripts/debug-capture.mjs 720 30 560 780   # a pane-sized crop
+```
+
+It enumerates the DSH windows it can see (handle, visibility, iconic state,
+rectangle), then captures and writes the PNG to the temp directory. A minimized
+window is restored by that script, which makes DSH visible again.
+
+Two Windows-specific rules the capture follows, both learned the hard way:
+
+- The PowerShell script is **ASCII only** and is passed as `-EncodedCommand`
+  (UTF-16LE base64). Windows PowerShell reads `.ps1` files as ANSI, so a
+  non-ASCII script file — or a `-Command` string — is corrupted silently.
+- Its lines end in **CRLF**: a here-string terminator is only recognised at the
+  start of a line, and PS 5.1 does not accept an LF-only terminator when the
+  script arrives through `-EncodedCommand`.
 
 ## Pull requests
 

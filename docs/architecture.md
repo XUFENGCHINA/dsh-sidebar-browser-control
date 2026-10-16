@@ -127,10 +127,18 @@ explicitly (all verified against the running Desktop app):
 | Click matched a container | element is a `div`/`body`, page unchanged | click reports "the element is not a link or button … use `elements` for a precise selector" — a silent no-op reads as success otherwise |
 | Link opened a new window | DSH turns the popup request into a new sidebar tab | click reports `opened_tab`/`opened_url` and says to continue with that id; the original tab is unchanged |
 | Page is genuinely empty / has no links | normal document, nothing to read | `note` explains the likely causes (SPA still rendering, use `wait`/`eval`) |
+| DSH window minimized | the only window handle is iconic, `GetWindowRect` reports `-32000,-32000` | `screenshot` refuses and names the reason; `restore: true` restores the window first — a minimized window has no rendered surface, so `PrintWindow` can only return black |
+| Another application covers the DSH window | the window is visible but occluded | nothing to report: `PrintWindow` renders the window's own pixels, so the capture is unaffected (a screen copy would have produced the wrong picture) |
+| The interesting part of the page is a picture | DOM text says nothing useful | `images` lists the pictures and `image { index }` attaches one; the **Host** fetches it, so the page's CORS rules do not apply |
 
 Text matching for `click`/`wait` ranks candidates by **exact text, then
 clickability, then size**, so a link wins over the block that merely contains its
 text. Prefer an explicit `selector` from `elements` when precision matters.
+
+Form actions resolve fields by **selector, then name, then label, then
+placeholder, then type**, searching same-origin iframes as well as the top
+document — a login form is often embedded, and the password field is the anchor
+the account field is located from.
 
 ## Why there is no screenshot
 

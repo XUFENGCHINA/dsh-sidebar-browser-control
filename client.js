@@ -294,10 +294,7 @@ window.__ModuleLoader__.load({
         };
       });
       return {
-        /* The Host half's ES module is cached for the process lifetime, so a
-           diagnostic that the current renderer already prints is smuggled into
-           `platform` until the next restart loads the new host code. */
-        platform: `${platformName()} [guest=${capture.guest === true ? 'y' : 'n'} dc=${capture.desktop_capturer === true ? 'y' : 'n'} dm=${capture.display_media === true ? 'y' : 'n'} keys=${capture.carrier_keys.join('/')}]`,
+        platform: platformName(),
         page_control: isDesktop(),
         panel_open: service.isExpanded?.() === true,
         active_tab: active?.handle,
@@ -1246,10 +1243,10 @@ window.__ModuleLoader__.load({
           for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(index, index + 0x8000));
           return { base64: btoa(binary), type: response.headers.get('content-type') || 'image/png' };
         })()`);
-        if (typeof drawn?.base64 === 'string') return { ...base, inline: drawn.base64, media_type: drawn.type };
+        if (typeof drawn?.base64 === 'string') return { ...base, image_url: src, inline: drawn.base64, media_type: drawn.type };
         throw new Error('无法读取 blob: 图片。');
       }
-      return { ...base, url: src };
+      return { ...base, image_url: src };
     }
 
     /**

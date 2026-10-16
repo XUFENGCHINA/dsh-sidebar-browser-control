@@ -125,10 +125,12 @@ function admitted(req) {
  * ANSI, so a non-ASCII script file (or `-Command` string) corrupts silently.
  * @param outPath - PNG destination.
  * @param crop - pixel rectangle inside the window, or zero-size for the whole window.
+ * @param restore - restore a minimized window before capturing.
  * @returns the script source.
  */
-function captureScript(outPath, crop) {
+export function captureScript(outPath, crop, restore = false) {
   return [
+    '$ProgressPreference = "SilentlyContinue"',
     'Add-Type -AssemblyName System.Drawing',
     'Add-Type @"',
     'using System;',
@@ -137,17 +139,50 @@ function captureScript(outPath, crop) {
     '  [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();',
     '  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);',
     '  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);',
+    '  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);',
+    '  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int command);',
     '  [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdc, uint flags);',
     '  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }',
     '}',
     '"@',
     '[void][DshShot]::SetProcessDPIAware()',
-    "$p = Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1",
-    'if ($null -eq $p) { Write-Output "error=no-window"; exit 2 }',
-    '$h = $p.MainWindowHandle',
-    'if ([DshShot]::IsIconic($h)) { Write-Output "error=minimized"; exit 4 }',
-    '$r = New-Object DshShot+RECT',
-    '[void][DshShot]::GetWindowRect($h, [ref]$r)',
+    '# Several processes share the app name, and a hidden helper window can be the',
+    '# first one with a handle: pick the visible, titled, un-minimised, largest one.',
+    '$best = $null',
+    '$bestScore = -1',
+    '$bestRect = $null',
+    '$bestIconic = $false',
+    "$bestTitle = ''",
+    "foreach ($candidate in (Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue)) {",
+    '  $handle = $candidate.MainWindowHandle',
+    '  if ($handle -eq 0) { continue }',
+    '  if (-not [DshShot]::IsWindowVisible($handle)) { continue }',
+    '  $rect = New-Object DshShot+RECT',
+    '  [void][DshShot]::GetWindowRect($handle, [ref]$rect)',
+    '  $area = ($rect.Right - $rect.Left) * ($rect.Bottom - $rect.Top)',
+    '  if ($area -le 0) { continue }',
+    '  $titled = $candidate.MainWindowTitle.Length -gt 0',
+    '  $iconic = [DshShot]::IsIconic($handle)',
+    '  $score = $area',
+    '  if ($titled) { $score = $score + 100000000 }',
+    '  if (-not $iconic) { $score = $score + 10000000 }',
+    '  if ($score -gt $bestScore) { $bestScore = $score; $best = $candidate; $bestRect = $rect; $bestIconic = $iconic; $bestTitle = $candidate.MainWindowTitle }',
+    '}',
+    'if ($null -eq $best) { Write-Output "error=no-window"; exit 2 }',
+    '$h = $best.MainWindowHandle',
+    'if ($bestIconic) {',
+    `  if (${restore === true ? '$true' : '$false'}) {`,
+    '    # A minimized window has no rendered surface: restore it, then re-measure.',
+    '    [void][DshShot]::ShowWindow($h, 9)',
+    '    Start-Sleep -Milliseconds 600',
+    '    [void][DshShot]::GetWindowRect($h, [ref]$bestRect)',
+    '    $bestIconic = $false',
+    '  } else {',
+    '    Write-Output "error=minimized"',
+    '    exit 4',
+    '  }',
+    '}',
+    '$r = $bestRect',
     '$w = $r.Right - $r.Left',
     '$t = $r.Bottom - $r.Top',
     'if ($w -le 0 -or $t -le 0) { Write-Output "error=bad-rect"; exit 5 }',
@@ -178,18 +213,24 @@ function captureScript(outPath, crop) {
     '}',
     `$bmp.Save('${outPath.replace(/'/gu, "''")}', [System.Drawing.Imaging.ImageFormat]::Png)`,
     '$bmp.Dispose()',
-    'Write-Output ("ok " + $w + "x" + $t)'
+    'Write-Output ("ok " + $w + "x" + $t + " title=" + $bestTitle)'
   ].join('\n');
 }
 
 /**
  * Run one PowerShell script without touching a file or a shell.
+ *
+ * The script is handed over as -EncodedCommand (UTF-16LE base64) so no file
+ * encoding, quoting or code page can corrupt it. CRLF line endings are required:
+ * a here-string terminator is only recognised at the start of a line, and
+ * Windows PowerShell 5.1 does not accept an LF-only terminator when the script
+ * arrives this way.
  * @param script - ASCII script source.
  * @param timeoutMs - kill the process after this long.
  * @returns the trimmed standard output.
  */
-function runPowerShell(script, timeoutMs) {
-  const encoded = Buffer.from(script, 'utf16le').toString('base64');
+export function runPowerShell(script, timeoutMs = 20_000) {
+  const encoded = Buffer.from(script.replace(/\r?\n/gu, '\r\n'), 'utf16le').toString('base64');
   return new Promise((resolve, reject) => {
     execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], {
       timeout: timeoutMs,
@@ -197,7 +238,9 @@ function runPowerShell(script, timeoutMs) {
       maxBuffer: 8 * 1024 * 1024
     }, (error, stdout, stderr) => {
       if (error !== null && error !== undefined) {
-        reject(new Error(`窗口截图失败：${String(stderr || error.message).trim()}`));
+        const detail = [String(stdout || '').trim(), String(stderr || '').trim()].filter((part) => part.length > 0).join(' | ').slice(0, 400);
+        const killed = error.killed === true ? '（进程超时被终止）' : '';
+        reject(new Error(`窗口截图失败${killed}：${detail.length > 0 ? detail : error.message}`));
         return;
       }
       resolve(String(stdout).trim());
@@ -210,7 +253,7 @@ function runPowerShell(script, timeoutMs) {
  * @param geometry - `{ rect, devicePixelRatio, outer }` from the Client half.
  * @returns `{ x, y, width, height }` in window pixels.
  */
-function geometryToCrop(geometry) {
+export function geometryToCrop(geometry) {
   const dpr = Number.isFinite(geometry?.devicePixelRatio) && geometry.devicePixelRatio > 0 ? geometry.devicePixelRatio : 1;
   const rect = geometry?.rect ?? {};
   const outer = geometry?.outer ?? {};
@@ -228,19 +271,20 @@ function geometryToCrop(geometry) {
  * Capture the DSH window (optionally cropped to the Browser pane).
  * @param crop - pixel rectangle from {@link geometryToCrop}.
  * @param timeoutMs - capture timeout.
+ * @param restore - restore a minimized window first (it becomes visible again).
  * @returns PNG bytes.
  */
-async function captureWindow(crop, timeoutMs = 20_000) {
+export async function captureWindow(crop, timeoutMs = 20_000, restore = false) {
   if (process.platform !== 'win32') {
     throw new Error('截图目前只在 Windows 上实现（PrintWindow）。其他平台请用 browser_control 的 external 在系统浏览器里查看，或用 browser_page 的 text/elements。');
   }
   const outPath = join(tmpdir(), `dsh-sidebar-browser-shot-${Date.now()}.png`);
-  const output = await runPowerShell(captureScript(outPath, crop), timeoutMs);
+  const output = await runPowerShell(captureScript(outPath, crop, restore), timeoutMs);
   if (output.startsWith('error=')) {
     const reason = output.slice('error='.length);
     const explain = {
       'no-window': '找不到 DSH 窗口（应用可能刚启动或已退出）。',
-      minimized: 'DSH 窗口最小化了：PrintWindow 抓不到最小化窗口，请先还原窗口。',
+      minimized: 'DSH 窗口最小化了：最小化的窗口没有可渲染表面，抓不到。请还原窗口，或带 restore: true 让插件先还原它（窗口会重新出现在屏幕上）。',
       'bad-rect': 'DSH 窗口尺寸无效，可能正处于最小化或切换状态。',
       printwindow: '系统拒绝了窗口抓取（PrintWindow 返回失败）。'
     };
@@ -303,7 +347,8 @@ async function loadPicture(found, signal) {
     if (bytes.length === 0) throw new Error('内联图片是空的。');
     return { bytes, media_type: fallbackType };
   }
-  const url = typeof found?.url === 'string' ? found.url : undefined;
+  /* `image_url` is the picture's own address; `url` stays the page's address. */
+  const url = typeof found?.image_url === 'string' ? found.image_url : undefined;
   if (url === undefined) throw new Error('没有拿到图片地址。');
   if (!/^https?:/u.test(url)) throw new Error(`不支持的图片来源：${url.slice(0, 80)}`);
   const response = await fetch(url, { signal, redirect: 'follow' });
@@ -525,7 +570,7 @@ function tabsText(value) {
   const captureLine = capture === undefined || capture === null
     ? ' capture=n/a'
     : `\ncapture: guest=${capture.guest === true ? 'yes' : 'no'} desktopCapturer=${capture.desktop_capturer === true ? 'yes' : 'no'} displayMedia=${capture.display_media === true ? 'yes' : 'no'}${Array.isArray(capture.carrier_keys) && capture.carrier_keys.length > 0 ? ` carrier=[${capture.carrier_keys.join(',')}]` : ''}`;
-  const header = `build=diag2 platform=${value?.platform ?? 'unknown'} page_control=${value?.page_control === true ? 'yes' : 'no'} panel_open=${value?.panel_open === true ? 'yes' : 'no'}${captureLine}`;
+  const header = `platform=${value?.platform ?? 'unknown'} page_control=${value?.page_control === true ? 'yes' : 'no'} panel_open=${value?.panel_open === true ? 'yes' : 'no'}${captureLine}`;
   if (tabs.length === 0) return `${header}\n内置浏览器当前没有打开任何标签页。`;
   const lines = tabs.map((tab) => {
     const marks = [tab.active === true ? 'active' : '', tab.on_screen === true ? 'on-screen' : 'other-session'].filter((mark) => mark.length > 0).join(',');
@@ -732,6 +777,7 @@ export function apply(ctx) {
         password_selector: { type: 'string', description: 'login: explicit CSS selector for the password field.' },
         key: { type: 'string', description: 'key: Enter (default), Tab, Escape, ArrowDown…' },
         index: { type: 'number', description: 'image: 1-based index from the images action.' },
+        restore: { type: 'boolean', description: 'screenshot: restore the window first when it is minimized (it becomes visible again). Refused by default, because the capture cannot render a minimized window.' },
         submit: { type: 'boolean', description: 'type/fill: submit the form afterwards.' },
         url_contains: { type: 'string', description: 'wait: wait until the address contains this text.' },
         ms: { type: 'number', description: 'wait: timeout in milliseconds (default 10000). scroll: pixels to scroll (default one viewport).' },
@@ -764,7 +810,8 @@ export function apply(ctx) {
       if (args?.action === 'screenshot') {
         const geometry = await pilot.call('geometry', { tab_id: args.tab_id }, exec.signal);
         const crop = geometryToCrop(geometry);
-        const bytes = await captureWindow(crop);
+        const restore = args?.restore === true;
+        const bytes = await captureWindow(crop, 20_000, restore);
         const saved = await saveScreenshot(ctx, exec, bytes, geometry?.tab_id ?? 'browser');
         return {
           action: 'screenshot',
@@ -773,8 +820,11 @@ export function apply(ctx) {
           title: geometry?.title,
           width: Math.round(crop.width),
           height: Math.round(crop.height),
+          restored: restore ? true : undefined,
           ...saved,
-          note: saved.note ?? '这是内置浏览器面板本身的截图，已附在结果里。'
+          note: saved.note ?? (restore
+            ? '这是内置浏览器面板本身的截图，已附在结果里；截图前窗口是被还原过的。'
+            : '这是内置浏览器面板本身的截图，已附在结果里。')
         };
       }
       if (args?.action === 'image') {
