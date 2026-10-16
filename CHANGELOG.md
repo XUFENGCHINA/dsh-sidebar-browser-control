@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-13
+
+Found by driving the plugin against real pages; every one of these used to
+report success while doing the wrong thing.
+
 ### Fixed
 
 - `browser_control open`/`navigate` reported the guest's creation state
@@ -31,9 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- README install order: npm is now the primary path (the package is published),
-  GitHub follows, and a checkout stays the development path. Takes effect on the
-  next publish — the npm page shows the README of the published version.
+- README install order: npm is now the primary path, GitHub follows, and a
+  checkout stays the development path.
 
 ### Notes
 

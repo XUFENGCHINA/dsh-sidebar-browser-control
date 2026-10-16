@@ -1,6 +1,6 @@
 {
   "name": "dsh-sidebar-browser-control",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Drive DSH's own built-in browser (the right-hand Sidebar's Browser tab) from the agent: list tabs, open, navigate, back/forward, reload, read the page, run JavaScript, click and type. No second Chromium process.",
   "keywords": [
     "dsh",
