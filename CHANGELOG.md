@@ -6,10 +6,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.1] - 2026-10-13
+## [0.2.0] - 2026-10-13
 
-Found by driving the plugin against real pages; every one of these used to
-report success while doing the wrong thing.
+The release where the plugin can actually *operate* the built-in browser the way
+a person does — fill forms, log in, and look at what is on screen — plus the
+reporting fixes that were staged as 0.1.1 (never published on its own).
+
+### Added
+
+- `browser_page fill` — fill several fields in one call, matched by label, name,
+  placeholder or type (not just a CSS selector), including checkboxes, radios and
+  selects, with an optional submit. Passwords are masked in the result.
+- `browser_page key` — press Enter/Tab/Escape/arrows on a focused element, with
+  Enter submitting the surrounding form.
+- `browser_page login` — find the account and password fields (including inside a
+  same-origin iframe), fill them, submit, wait for the outcome and report it:
+  which fields were found, whether the password field disappeared, the address it
+  landed on and an excerpt of the page after login. The password is used once and
+  never returned or logged by the plugin.
+- `browser_page images` — list the pictures visible in the viewport with index,
+  alt text, rendered and natural size, and source.
+- `browser_page image` — hand one picture from the page to the model as an
+  attachment, so it can be *seen*. HTTP(S) sources are fetched by the Host (the
+  page's own `fetch` is bound by CORS), `data:`/`blob:`/canvas sources are decoded
+  in the page. Authored for pages where the interesting content is a photo, chart,
+  QR code or captcha.
+- `browser_page screenshot` — capture the Browser pane itself and attach it. This
+  deliberately does **not** use a native Electron capture API: the Host asks the
+  page for the pane's geometry and then captures the DSH window with PrintWindow
+  through PowerShell, cropping to that rectangle, so it also works while the
+  window is covered by other applications.
+- `browser_page wait` learned `url_contains`.
+- `browser_tabs` reports the available capture routes
+  (`guest`/`desktopCapturer`/`displayMedia` and the preload's exposed keys) as
+  diagnostics, and `elements` now carries `type`, `name`, `label`, `placeholder`,
+  `autocomplete`, `value` and `checked` for form fields.
+- `/browser images`, `/browser image <N>` and `/browser screenshot`.
 
 ### Fixed
 
@@ -38,6 +70,9 @@ report success while doing the wrong thing.
 
 - README install order: npm is now the primary path, GitHub follows, and a
   checkout stays the development path.
+- Documented the development constraint that a Host-half change needs a DSH
+  restart while a Client-half change hot-reloads through a bundle toggle
+  (`CONTRIBUTING.md`).
 
 ### Notes
 

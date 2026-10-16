@@ -255,11 +255,31 @@ window.__ModuleLoader__.load({
       return pane?.getAttribute('data-dockkit-pane') ?? pane?.getAttribute('data-dockkit-float') ?? undefined;
     }
 
+    /**
+     * What this page can actually do about pixels.
+     *
+     * Screenshots are the one capability with a native failure mode, so the
+     * answer is reported instead of guessed: `guest` is the webview's own
+     * `capturePage` (crashed the renderer once — see docs/architecture.md),
+     * `window` needs a renderer capture API, `dom` is the pure-JS fallback.
+     * @returns a diagnostic snapshot of the available capture routes.
+     */
+    function captureRoutes() {
+      const carrier = globalThis.dshDesktop;
+      return {
+        guest: typeof document.createElement('webview').capturePage === 'function',
+        desktop_capturer: typeof globalThis.desktopCapturer?.getSources === 'function',
+        display_media: typeof navigator.mediaDevices?.getDisplayMedia === 'function',
+        carrier_keys: carrier === undefined || carrier === null ? [] : Object.keys(carrier).slice(0, 20)
+      };
+    }
+
     /** @returns every Browser tab, with the addresses its carrier can report. */
     function listTabs() {
       const service = sidebar();
       const screen = onScreenSession();
       const active = activeTabEntry();
+      const capture = captureRoutes();
       const tabs = browserEntries().map((entry) => {
         const frame = frameFor(entry.tabId, entry.sessionId);
         const record = recordFor(entry);
@@ -274,10 +294,14 @@ window.__ModuleLoader__.load({
         };
       });
       return {
-        platform: platformName(),
+        /* The Host half's ES module is cached for the process lifetime, so a
+           diagnostic that the current renderer already prints is smuggled into
+           `platform` until the next restart loads the new host code. */
+        platform: `${platformName()} [guest=${capture.guest === true ? 'y' : 'n'} dc=${capture.desktop_capturer === true ? 'y' : 'n'} dm=${capture.display_media === true ? 'y' : 'n'} keys=${capture.carrier_keys.join('/')}]`,
         page_control: isDesktop(),
         panel_open: service.isExpanded?.() === true,
         active_tab: active?.handle,
+        capture,
         tabs
       };
     }
@@ -383,6 +407,108 @@ window.__ModuleLoader__.load({
       if (text === undefined) return String(value).slice(0, limit);
       if (text.length <= limit) return value;
       return `${text.slice(0, limit)}…（已截断，共 ${text.length} 字符）`;
+    }
+
+    /**
+     * In-page helpers shared by every form-aware action.
+     *
+     * Login forms are the reason these exist: fields have to be found by label,
+     * name, placeholder or autocomplete rather than by a hand-written selector,
+     * and the form itself may live in a same-origin iframe.
+     * @returns JavaScript source declaring `visible`, `docs`, `labelled`,
+     * `fields`, `findField`, `setValue` and `submitForm`.
+     */
+    function pageHelpers() {
+      return `
+        const visible = (el) => { const rect = el.getBoundingClientRect(); return rect.width > 1 && rect.height > 1; };
+        const docs = () => {
+          const list = [document];
+          for (const frame of document.querySelectorAll('iframe')) {
+            try { if (frame.contentDocument !== null) list.push(frame.contentDocument); } catch (error) { /* cross-origin */ }
+          }
+          return list;
+        };
+        const labelled = (el) => {
+          const parts = [];
+          if (el.id !== undefined && el.id.length > 0) {
+            const root = el.ownerDocument;
+            const label = root.querySelector('label[for="' + el.id.replace(/"/g, '\\\\"') + '"]');
+            if (label !== null) parts.push(label.innerText);
+          }
+          const wrapping = el.closest === undefined ? null : el.closest('label');
+          if (wrapping !== null && wrapping !== undefined) parts.push(wrapping.innerText);
+          for (const attribute of ['aria-label', 'placeholder', 'title', 'name', 'id']) {
+            const value = el.getAttribute === undefined ? null : el.getAttribute(attribute);
+            if (typeof value === 'string' && value.length > 0) parts.push(value);
+          }
+          return parts.join(' ').replace(/\\s+/g, ' ').trim().slice(0, 160);
+        };
+        const fields = () => {
+          const list = [];
+          for (const doc of docs()) {
+            for (const el of doc.querySelectorAll('input,textarea,select')) {
+              if (el.type === 'hidden' || !visible(el)) continue;
+              list.push(el);
+            }
+          }
+          return list;
+        };
+        const describe = (el) => ({
+          tag: el.tagName.toLowerCase(),
+          type: (el.getAttribute('type') || el.tagName.toLowerCase()).toLowerCase(),
+          name: el.getAttribute('name') || undefined,
+          id: el.id || undefined,
+          autocomplete: el.getAttribute('autocomplete') || undefined,
+          placeholder: el.getAttribute('placeholder') || undefined,
+          label: labelled(el),
+          value: el.type === 'password' ? '' : String(el.value ?? '').slice(0, 60),
+          checked: el.checked === undefined ? undefined : el.checked
+        });
+        /* Resolve one field description to an element: explicit selector, then
+           the semantic signals a login form actually carries. */
+        const findField = (spec) => {
+          const pool = fields();
+          const selector = typeof spec.selector === 'string' ? spec.selector : '';
+          if (selector.length > 0) {
+            for (const doc of docs()) {
+              const found = doc.querySelector(selector);
+              if (found !== null) return found;
+            }
+            return null;
+          }
+          const wanted = String(spec.name || spec.label || spec.placeholder || spec.type || '').toLowerCase();
+          if (wanted.length === 0) return null;
+          const scored = pool.map((el) => {
+            const info = describe(el);
+            const haystack = [info.name, info.id, info.placeholder, info.label, info.autocomplete, info.type]
+              .filter((part) => typeof part === 'string').join(' ').toLowerCase();
+            let score = 0;
+            if (info.type === wanted) score += 4;
+            if (info.name !== undefined && info.name.toLowerCase() === wanted) score += 8;
+            if (haystack.includes(wanted)) score += 3;
+            if (wanted === 'password' && info.type === 'password') score += 10;
+            if (wanted === 'username' && /user|email|phone|account|login|mobile/i.test(haystack)) score += 6;
+            return { el, score };
+          }).filter((candidate) => candidate.score > 0);
+          scored.sort((left, right) => right.score - left.score);
+          return scored.length === 0 ? null : scored[0].el;
+        };
+        const setValue = (el, value) => {
+          const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+          const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+          if (setter !== undefined) setter.call(el, value); else el.value = value;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        const submitForm = (el) => {
+          const form = el.form ?? (el.closest === undefined ? null : el.closest('form'));
+          if (form !== null && form !== undefined && typeof form.requestSubmit === 'function') { form.requestSubmit(); return true; }
+          const button = el.ownerDocument.querySelector('button[type=submit],input[type=submit],button:not([type])');
+          if (button !== null && button !== undefined) { button.click(); return true; }
+          el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+          return false;
+        };
+      `;
     }
 
     /**
@@ -678,6 +804,7 @@ window.__ModuleLoader__.load({
         case 'elements': {
           requireLoaded(state, action);
           const elements = await view.executeJavaScript(`(() => {
+            ${pageHelpers()}
             const path = (el) => {
               const parts = [];
               let node = el;
@@ -694,13 +821,210 @@ window.__ModuleLoader__.load({
               }
               return parts.join(' > ');
             };
-            return [...document.querySelectorAll('a[href],button,input,textarea,select,summary,[role=button],[role=link],[contenteditable=true]')]
-              .filter((el) => { const rect = el.getBoundingClientRect(); return rect.width > 1 && rect.height > 1; })
-              .slice(0, 80)
-              .map((el) => ({ tag: el.tagName.toLowerCase(), selector: path(el), text: (el.innerText || el.value || el.getAttribute('aria-label') || el.placeholder || '').replace(/\\s+/g, ' ').trim().slice(0, 120), href: el.getAttribute('href') || undefined }));
+            const nodes = [];
+            for (const doc of docs()) {
+              for (const el of doc.querySelectorAll('a[href],button,input,textarea,select,summary,[role=button],[role=link],[contenteditable=true]')) {
+                if (visible(el)) nodes.push(el);
+              }
+            }
+            return nodes.slice(0, 80).map((el) => {
+              const info = describe(el);
+              return {
+                tag: info.tag,
+                type: info.type,
+                selector: path(el),
+                text: (el.innerText || el.value || el.getAttribute('aria-label') || el.placeholder || '').replace(/\\s+/g, ' ').trim().slice(0, 120),
+                name: info.name,
+                placeholder: info.placeholder,
+                label: info.label || undefined,
+                autocomplete: info.autocomplete,
+                value: info.value || undefined,
+                checked: info.checked,
+                href: el.getAttribute('href') || undefined
+              };
+            });
           })()`);
           const list = Array.isArray(elements) ? elements : [];
           return { ...base, elements: list, note: list.length === 0 ? '这个页面没有可交互元素（或它们都不可见）。' : undefined };
+        }
+        case 'fill': {
+          requireLoaded(state, action);
+          const specs = Array.isArray(args?.fields) ? args.fields : [];
+          if (specs.length === 0) throw new Error('fill 需要一个 fields 数组，例如 [{ label: "username", value: "alice" }, { label: "password", value: "…" }]。');
+          const outcome = await view.executeJavaScript(`(() => {
+            ${pageHelpers()}
+            const specs = ${JSON.stringify(specs)};
+            const report = [];
+            let last = null;
+            for (const spec of specs) {
+              const el = findField(spec);
+              if (el === null) { report.push({ target: spec.selector || spec.label || spec.name || spec.placeholder || spec.type, ok: false, reason: 'not-found' }); continue; }
+              if (spec.value === undefined || spec.value === null) { report.push({ target: spec.selector || spec.label, ok: false, reason: 'no-value' }); continue; }
+              if (el.type === 'checkbox' || el.type === 'radio') {
+                const wanted = spec.value === true || spec.value === 'true' || spec.value === 'on';
+                if (el.checked !== wanted) el.click();
+                report.push({ target: spec.selector || spec.label || spec.name, ok: true, kind: el.type, checked: el.checked });
+              } else if (el.tagName === 'SELECT') {
+                el.value = String(spec.value);
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+                report.push({ target: spec.selector || spec.label || spec.name, ok: true, kind: 'select', value: String(el.value) });
+              } else {
+                el.focus();
+                setValue(el, String(spec.value));
+                report.push({ target: spec.selector || spec.label || spec.name, ok: true, kind: el.type, filled: el.type === 'password' ? '••••' : String(el.value).slice(0, 40) });
+              }
+              last = el;
+            }
+            let submitted = false;
+            if (${args?.submit === true ? 'true' : 'false'} && last !== null) submitted = submitForm(last);
+            return { report, submitted };
+          })()`, true);
+          const filled = Array.isArray(outcome?.report) ? outcome.report.filter((entry) => entry.ok).length : 0;
+          const missing = Array.isArray(outcome?.report) ? outcome.report.filter((entry) => entry.ok !== true) : [];
+          const settled = outcome?.submitted === true ? await settle(view, base.url, 5000) : base.url;
+          return {
+            ...base,
+            value: outcome,
+            url: settled,
+            title: frameTitle(view),
+            note: `${filled}/${specs.length} 个字段已填写${outcome?.submitted === true ? '并已提交表单' : ''}。${missing.length > 0 ? `未找到：${missing.map((entry) => entry.target).join('、')}（先用 elements 看可用字段）。` : ''} 密码不会出现在任何返回值里。`
+          };
+        }
+        case 'key': {
+          requireLoaded(state, action);
+          const key = typeof args?.key === 'string' && args.key.length > 0 ? args.key : 'Enter';
+          const selector = typeof args?.selector === 'string' && args.selector.length > 0 ? args.selector : undefined;
+          const outcome = await view.executeJavaScript(`(() => {
+            ${pageHelpers()}
+            const el = ${selector !== undefined ? `document.querySelector(${JSON.stringify(selector)})` : 'document.activeElement'};
+            const target = el === null || el === undefined ? document.body : el;
+            if (target.focus !== undefined) target.focus();
+            const key = ${JSON.stringify(key)};
+            const code = key.length === 1 ? 'Key' + key.toUpperCase() : key;
+            const init = { key, code, keyCode: key === 'Enter' ? 13 : key === 'Escape' ? 27 : key === 'Tab' ? 9 : 0, which: 0, bubbles: true, cancelable: true };
+            target.dispatchEvent(new KeyboardEvent('keydown', init));
+            target.dispatchEvent(new KeyboardEvent('keypress', init));
+            target.dispatchEvent(new KeyboardEvent('keyup', init));
+            const submitted = key === 'Enter' && target.tagName !== 'TEXTAREA' ? submitForm(target) : false;
+            return { key, tag: target.tagName.toLowerCase(), submitted };
+          })()`, true);
+          const submittedKey = outcome?.submitted === true;
+          const settledKey = submittedKey ? await settle(view, base.url, 5000) : base.url;
+          return { ...base, value: outcome, url: settledKey, title: frameTitle(view), note: submittedKey ? `已按下 ${key} 并提交所在表单。` : `已按下 ${key}。` };
+        }
+        case 'login': {
+          requireLoaded(state, action);
+          const user = typeof args?.user === 'string' ? args.user : undefined;
+          const password = typeof args?.password === 'string' ? args.password : undefined;
+          if (user === undefined || password === undefined) throw new Error('login 需要 user 和 password 两个参数（密码只用于这一次填写，不会存入日志或返回）。');
+          const userSelector = typeof args?.user_selector === 'string' && args.user_selector.length > 0 ? args.user_selector : undefined;
+          const passwordSelector = typeof args?.password_selector === 'string' && args.password_selector.length > 0 ? args.password_selector : undefined;
+          const pre = await view.executeJavaScript(`(() => {
+            ${pageHelpers()}
+            const list = fields().map(describe);
+            return { hasPassword: list.some((field) => field.type === 'password'), fields: list.slice(0, 12) };
+          })()`);
+          if (pre?.hasPassword !== true && passwordSelector === undefined) {
+            throw new Error('这个页面里没有可见的密码输入框（可能已经登录，或登录表单在跨域 iframe 里）。先用 elements 确认。');
+          }
+          const outcome = await view.executeJavaScript(`(() => {
+            ${pageHelpers()}
+            const password = findField({ selector: ${JSON.stringify(passwordSelector ?? null)}, type: 'password' });
+            let account = findField({ selector: ${JSON.stringify(userSelector ?? null)}, type: 'username' });
+            if (account === null && password !== null) {
+              /* The account field is normally the last text input before the password. */
+              const before = fields().filter((el) => el.compareDocumentPosition(password) & Node.DOCUMENT_POSITION_FOLLOWING || el === password);
+              const textish = before.filter((el) => ['text', 'email', 'tel', 'number', ''].includes((el.getAttribute('type') || '').toLowerCase()) || el.tagName === 'INPUT');
+              account = textish.length > 0 ? textish[textish.length - 1] : null;
+            }
+            const report = [];
+            if (account !== null && account !== undefined) { account.focus(); setValue(account, ${JSON.stringify(user)}); report.push({ field: 'account', ok: true, name: describe(account).name ?? describe(account).label ?? '' }); }
+            else report.push({ field: 'account', ok: false });
+            if (password !== null && password !== undefined) { password.focus(); setValue(password, ${JSON.stringify(password)}); report.push({ field: 'password', ok: true }); }
+            else report.push({ field: 'password', ok: false });
+            const submitted = password !== null && password !== undefined ? submitForm(password) : false;
+            return { report, submitted };
+          })()`, true);
+          const accountOk = Array.isArray(outcome?.report) && outcome.report.some((entry) => entry.field === 'account' && entry.ok === true);
+          const passwordOk = Array.isArray(outcome?.report) && outcome.report.some((entry) => entry.field === 'password' && entry.ok === true);
+          const before = base.url;
+          const settledUrl = await settle(view, before, 8000);
+          const after = await view.executeJavaScript(`(() => {
+            ${pageHelpers()}
+            const list = fields().map(describe);
+            const body = (document.body === null ? '' : document.body.innerText).slice(0, 4000);
+            return {
+              hasPassword: list.some((field) => field.type === 'password'),
+              signals: /log ?out|sign ?out|退出|注销|我的账号|my account|profile|dashboard/i.test(body) ? 'account-ui' : undefined,
+              error: /incorrect|invalid|wrong password|密码错误|验证码|错误|失败|captcha|验证/i.test(body) ? 'page-reports-a-problem' : undefined
+            };
+          })()`);
+          /* A login form inside an iframe navigates the frame, not the tab, so
+             both the frame's fields and the top document are re-checked. */
+          const frameLanded = await view.executeJavaScript(`(() => {
+            for (const doc of (() => {
+              const list = [document];
+              for (const frame of document.querySelectorAll('iframe')) { try { if (frame.contentDocument !== null) list.push(frame.contentDocument); } catch (error) { /* cross-origin */ } }
+              return list;
+            })()) {
+              const text = (doc.body === null ? '' : doc.body.innerText).slice(0, 2000);
+              if (/欢迎|welcome|dashboard|账号中心|已登录/i.test(text)) return { landed: true, url: doc.location.href, excerpt: text.replace(/\\s+/g, ' ').trim().slice(0, 120) };
+            }
+            return { landed: false };
+          })()`);
+          return {
+            ...base,
+            url: settledUrl,
+            value: {
+              filled_account: accountOk,
+              filled_password: passwordOk,
+              submitted: outcome?.submitted === true,
+              password_field_gone: after?.hasPassword === false,
+              landed: frameLanded?.landed === true ? frameLanded.url : undefined,
+              signal: after?.signals,
+              warning: after?.error
+            },
+            title: frameTitle(view),
+            note: [
+              accountOk && passwordOk ? '账号与密码已填写' : `字段查找：账号${accountOk ? '✓' : '✗'} 密码${passwordOk ? '✓' : '✗'}（可用 *_selector 明确指定）`,
+              outcome?.submitted === true ? '已提交' : '未提交（请检查提交按钮，或用 click 点它）',
+              frameLanded?.landed === true ? `已看到登录后的页面内容：${frameLanded.excerpt}` : undefined,
+              after?.hasPassword === false ? '登录框已消失，通常表示登录成功' : undefined,
+              after?.signals === 'account-ui' ? '页面上出现了账号相关文字，可进一步确认' : undefined,
+              after?.error === 'page-reports-a-problem' ? '页面文字里出现了错误/验证码类提示，可能需要人工处理' : undefined
+            ].filter((part) => typeof part === 'string').join('；')
+          };
+        }
+        case 'images': {
+          requireLoaded(state, action);
+          const images = await view.executeJavaScript(`(() => {
+            const out = [];
+            for (const el of document.querySelectorAll('img,picture source,svg image,canvas')) {
+              const rect = el.getBoundingClientRect();
+              if (!(rect.width > 1 && rect.height > 1 && rect.bottom > -50 && rect.top < window.innerHeight + 50)) continue;
+              const source = el.currentSrc || el.src || '';
+              out.push({
+                index: out.length + 1,
+                tag: el.tagName.toLowerCase(),
+                alt: el.getAttribute('alt') || undefined,
+                width: Math.round(rect.width),
+                height: Math.round(rect.height),
+                natural_width: el.naturalWidth || undefined,
+                natural_height: el.naturalHeight || undefined,
+                src: String(source).slice(0, 200)
+              });
+              if (out.length >= 40) break;
+            }
+            return out;
+          })()`);
+          const list = Array.isArray(images) ? images : [];
+          return {
+            ...base,
+            images: list,
+            note: list.length === 0
+              ? '当前视口里没有可见图片（可以先 scroll 或 wait 再试）。'
+              : '用 browser_page { action: "image", index: N } 就能直接看到其中一张。'
+          };
         }
         case 'eval': {
           if (typeof args?.code !== 'string' || args.code.trim().length === 0) throw new Error('eval 需要一个 code 参数。');
@@ -790,16 +1114,20 @@ window.__ModuleLoader__.load({
           const timeout = Number.isFinite(args?.ms) ? Math.max(200, Math.min(60_000, Math.trunc(args.ms))) : 10_000;
           const selector = typeof args?.selector === 'string' && args.selector.length > 0 ? args.selector : undefined;
           const wanted = typeof args?.text === 'string' && args.text.length > 0 ? args.text : undefined;
+          const urlWanted = typeof args?.url_contains === 'string' && args.url_contains.length > 0 ? args.url_contains : undefined;
           const condition = selector !== undefined || wanted !== undefined
             ? `(() => { const el = ${matchExpression(selector, wanted)}; return el !== null; })()`
             : '(() => document.readyState === "complete")()';
           const deadline = Date.now() + timeout;
           while (Date.now() < deadline) {
-            const ready = await view.executeJavaScript(condition);
+            if (urlWanted !== undefined && (frameUrl(view) ?? '').includes(urlWanted)) {
+              return { ...base, url: frameUrl(view), note: `网址已包含 ${urlWanted}。` };
+            }
+            const ready = urlWanted === undefined ? await view.executeJavaScript(condition) : false;
             if (ready === true) return { ...base, note: '条件已满足。' };
             await sleep(250);
           }
-          throw new Error(`等待超时（${timeout}ms）：${selector ?? wanted ?? '页面加载'} 未出现。`);
+          throw new Error(`等待超时（${timeout}ms）：${urlWanted !== undefined ? `网址未包含 ${urlWanted}` : `${selector ?? wanted ?? '页面加载'} 未出现`}。`);
         }
         case 'screenshot':
           throw new Error('本插件不提供截图：webview.capturePage() 会让 Electron 渲染进程原生崩溃（已实测），因此该能力被刻意移除。需要页面图像时，用 browser_control 的 external 在系统浏览器中打开。');
@@ -821,9 +1149,107 @@ window.__ModuleLoader__.load({
           return await control(command.args ?? {});
         case 'page':
           return await page(command.args ?? {});
+        case 'geometry':
+          return geometry(command.args ?? {});
+        case 'image':
+          return await image(command.args ?? {});
         default:
           throw new Error(`未知的内置浏览器操作：${command.op}`);
       }
+    }
+
+    /**
+     * Where the Browser pane sits inside the DSH window.
+     *
+     * The Host half captures the window itself (there is no safe in-renderer
+     * capture API), so it needs the pane's viewport rectangle plus the frame
+     * offsets that separate the viewport from the window rectangle.
+     * @param args - `{ tab_id? }`.
+     * @returns geometry for the Host's crop maths.
+     */
+    function geometry(args) {
+      const { frame, entry } = resolveTarget(args);
+      const rect = frame.getBoundingClientRect();
+      return {
+        tab_id: entry.handle,
+        url: frameUrl(frame),
+        title: frameTitle(frame),
+        rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+        devicePixelRatio: window.devicePixelRatio || 1,
+        outer: {
+          width: window.outerWidth,
+          height: window.outerHeight,
+          innerWidth: window.innerWidth,
+          innerHeight: window.innerHeight
+        }
+      };
+    }
+
+    /**
+     * Hand the Host one picture from the page so it can attach it to a result.
+     *
+     * Bytes travel from the Host, not from here: the page's own `fetch` is bound
+     * by CORS, while the Host's Node fetch is not. Only `data:` and `blob:`
+     * sources — which the Host cannot read — are decoded in the page.
+     * @param args - `{ tab_id?, index?, selector?, src? }`.
+     * @returns `{ url }` for the Host to fetch, or `{ inline, media_type }`.
+     */
+    async function image(args) {
+      const { frame, entry } = resolveTarget(args);
+      requireWebview(frame);
+      const index = Number.isFinite(args?.index) ? Math.trunc(args.index) : undefined;
+      const selector = typeof args?.selector === 'string' && args.selector.length > 0 ? args.selector : undefined;
+      const wanted = typeof args?.src === 'string' && args.src.length > 0 ? args.src : undefined;
+      if (index === undefined && selector === undefined && wanted === undefined) {
+        throw new Error('image 需要 index（来自 images）、selector 或 src 之一。');
+      }
+      const found = await frame.executeJavaScript(`(() => {
+        /* Same ordering as the images action: viewport-visible pictures only. */
+        const all = [...document.querySelectorAll('img,picture source,svg image,canvas')].filter((el) => {
+          const rect = el.getBoundingClientRect();
+          return rect.width > 1 && rect.height > 1 && rect.bottom > -50 && rect.top < window.innerHeight + 50;
+        });
+        const pick = ${index !== undefined ? `all[${index - 1}] ?? null` : 'null'};
+        const bySelector = ${selector !== undefined ? `document.querySelector(${JSON.stringify(selector)})` : 'null'};
+        const el = pick ?? bySelector ?? null;
+        if (el === null) return { ok: false };
+        const toBlobSource = ${wanted !== undefined ? JSON.stringify(wanted) : 'null'};
+        const source = toBlobSource ?? el.currentSrc ?? el.src ?? (el.tagName === 'CANVAS' ? el.toDataURL('image/png') : null);
+        if (source === null || source === undefined || String(source).length === 0) return { ok: false, reason: 'no-source' };
+        const rect = el.getBoundingClientRect();
+        return {
+          ok: true,
+          src: String(source),
+          alt: el.getAttribute('alt') || undefined,
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+          natural_width: el.naturalWidth || undefined,
+          natural_height: el.naturalHeight || undefined,
+          tag: el.tagName.toLowerCase()
+        };
+      })()`);
+      if (found?.ok !== true) throw new Error('没有找到这张图片（先用 images 看列表，或用 selector 指定）。');
+      const src = String(found.src);
+      const base = { action: 'image', tab_id: entry.handle, url: frameUrl(frame), title: frameTitle(frame), source: src.slice(0, 300), alt: found.alt, width: found.width, height: found.height };
+      const inline = /^data:([^;,]+)?(;base64)?,/u.exec(src);
+      if (inline !== null) {
+        const comma = src.indexOf(',');
+        const bytes = inline[2] === ';base64' ? src.slice(comma + 1) : btoa(unescape(encodeURIComponent(decodeURIComponent(src.slice(comma + 1)))));
+        return { ...base, inline: bytes, media_type: inline[1] ?? 'image/png' };
+      }
+      if (src.startsWith('blob:')) {
+        const drawn = await frame.executeJavaScript(`(async () => {
+          const response = await fetch(${JSON.stringify(src)});
+          const buffer = await response.arrayBuffer();
+          const bytes = new Uint8Array(buffer);
+          let binary = '';
+          for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(index, index + 0x8000));
+          return { base64: btoa(binary), type: response.headers.get('content-type') || 'image/png' };
+        })()`);
+        if (typeof drawn?.base64 === 'string') return { ...base, inline: drawn.base64, media_type: drawn.type };
+        throw new Error('无法读取 blob: 图片。');
+      }
+      return { ...base, url: src };
     }
 
     /**
