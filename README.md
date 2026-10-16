@@ -38,13 +38,45 @@ automation, downloads or screenshots.
 
 | Tool | Actions |
 |---|---|
-| `browser_tabs` | list open built-in-browser tabs: id, live title, URL, owning session, panel state, whether page control is available |
+| `browser_tabs` | list open built-in-browser tabs: id, live title, URL, owning session, panel state, whether page control is available, plus capture diagnostics |
 | `browser_control` | `open` · `navigate` · `back` · `forward` · `reload` · `close` · `focus` · `expand` · `collapse` · `fullscreen` · `split` · `float` · `dock` · `external` |
-| `browser_page` | `text` · `links` · `elements` · `eval` · `click` · `type` · `scroll` · `wait` *(Desktop only)* |
-| `/browser` | `open <url>` · `tabs` · `back` · `forward` · `reload` · `close` · `focus` · `expand` · `collapse` · `fullscreen` · `split` · `float` · `dock` · `external` · `read` |
+| `browser_page` | `text` · `links` · `elements` · `eval` · `click` · `type` · `fill` · `key` · `login` · `scroll` · `wait` · `images` · `image` · `screenshot` *(page actions: Desktop only)* |
+| `/browser` | `open <url>` · `tabs` · `back` · `forward` · `reload` · `close` · `focus` · `expand` · `collapse` · `fullscreen` · `split` · `float` · `dock` · `external` · `read` · `images` · `image <N>` · `screenshot` |
 
 The tools and the slash command share one implementation, so `/browser open …`
 costs no model round trip and behaves exactly like the tool.
+
+### Operating the page, not just reading it
+
+- `elements` reports what a person sees: `type`, `name`, `label`, `placeholder`,
+  `autocomplete`, `value`, `checked`, plus a selector for `click`.
+- `fill` takes several fields at once and matches them by **label or
+  placeholder**, not only by CSS selector — `[{ label: "用户名", value: "alice" },
+  { label: "密码", value: "…" }, { label: "记住我", value: true }]` — and can
+  submit. Passwords are masked in every result.
+- `login` is the whole flow in one call: find the account and password fields
+  (also inside a same-origin iframe), fill, submit, wait, then report which
+  fields were found, whether the password field disappeared, the address it
+  landed on and an excerpt of the page. It never echoes the password back.
+- `key` presses Enter/Tab/Escape; Enter submits the surrounding form.
+- `wait` can wait for a selector, a text, or `url_contains`.
+
+### Seeing the page
+
+Two ways to give the model actual pixels:
+
+- `images` lists the pictures in the viewport; `image { index }` attaches one of
+  them, so the model can look at a photo, chart, QR code or captcha. HTTP(S)
+  sources are fetched by the Host (the page's own `fetch` is bound by CORS);
+  `data:`, `blob:` and `<canvas>` sources are decoded inside the page.
+- `screenshot` captures the Browser pane itself and attaches it. It deliberately
+  avoids every native capture API — `webview.capturePage()` crashed the renderer
+  (see below) — and instead reads the pane's geometry from the page, then
+  captures the DSH window with `PrintWindow` through PowerShell and crops to that
+  rectangle. Because it renders the window's own pixels, it also works while
+  other applications cover the window. The window must not be minimized, and
+  this path is Windows-only today; elsewhere the tool says so instead of failing
+  quietly.
 
 ## Install
 
@@ -137,9 +169,11 @@ while tab and layout control keep working; the table of those dependencies is in
 
 ## Known limitations
 
-- **No screenshots.** `webview.capturePage()` natively crashed the Electron
-  renderer on the verified deployment, so the capability is removed and the call
-  refuses with the reason. Evidence and survivable alternatives:
+- **No screenshots through Electron.** `webview.capturePage()` natively crashed
+  the Electron renderer on the verified deployment, so it is not used anywhere.
+  `browser_page screenshot` goes through PrintWindow instead: the window must not
+  be minimized, and only Windows is implemented (macOS/Linux report that).
+  Evidence and survivable alternatives:
   [docs/architecture.md](https://github.com/XUFENGCHINA/dsh-sidebar-browser-control/blob/main/docs/architecture.md#why-there-is-no-screenshot).
 - Page-level actions are **Desktop only**.
 - Tab ids are unique per session; an ambiguous id is reported and accepted as
